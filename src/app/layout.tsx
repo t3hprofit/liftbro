@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Anton, Inter } from "next/font/google";
+import Script from "next/script";
 import { BottomNav } from "@/components/bottom-nav";
 import { SwRegister } from "@/components/sw-register";
 import "./globals.css";
@@ -59,6 +60,18 @@ export default function RootLayout({
         </div>
         <BottomNav />
         <SwRegister />
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-LV3PHLTWV6"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-LV3PHLTWV6');
+          `}
+        </Script>
       </body>
     </html>
   );
