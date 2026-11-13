@@ -3,18 +3,23 @@ import {
   addExercise,
   addSet,
   cancelWorkout,
+  createPlan,
+  deletePlan,
   deleteWorkout,
   emptyStore,
   exerciseNameSuggestions,
   filterExerciseNames,
   finishWorkout,
   loadStore,
+  newPlanExercise,
   recentExerciseNames,
   removeExercise,
   removeSet,
   saveStore,
   SEED_EXERCISES,
+  starterPlans,
   startWorkout,
+  updatePlan,
   workoutSetCount,
   workoutVolume,
   type Store,
@@ -155,11 +160,28 @@ describe("persistence", () => {
   });
 
   it("returns an empty store for missing or corrupt data", () => {
-    expect(loadStore()).toEqual(emptyStore());
+    const fresh = (s: Store) =>
+      s.workouts.length === 0 &&
+      s.activeWorkout === null &&
+      s.plans.map((p) => p.name).join() === starterPlans().map((p) => p.name).join();
+    expect(fresh(loadStore())).toBe(true);
     localStorage.setItem("liftbro.v1", "not json {");
-    expect(loadStore()).toEqual(emptyStore());
+    expect(fresh(loadStore())).toBe(true);
     localStorage.setItem("liftbro.v1", JSON.stringify({ version: 99 }));
-    expect(loadStore()).toEqual(emptyStore());
+    expect(fresh(loadStore())).toBe(true);
+  });
+
+  it("seeds starter plans into pre-plans data, but respects an emptied list", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({ version: 1, workouts: [], activeWorkout: null })
+    );
+    expect(loadStore().plans.length).toBe(starterPlans().length);
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: [] })
+    );
+    expect(loadStore().plans).toEqual([]);
   });
 });
 
@@ -203,5 +225,79 @@ describe("exercise picker helpers", () => {
     ]);
     expect(filterExerciseNames(names, "inc bench")).toEqual(["Incline Bench Press"]);
     expect(filterExerciseNames(names, "zzz")).toEqual([]);
+  });
+});
+
+describe("plans", () => {
+  it("ships with starter plans that have valid targets", () => {
+    const s = emptyStore();
+    expect(s.plans.map((p) => p.name)).toEqual([
+      "Push Day",
+      "Pull Day",
+      "Leg Day",
+      "Upper",
+      "Lower",
+    ]);
+    for (const p of s.plans) {
+      expect(p.exercises.length).toBeGreaterThan(0);
+      for (const e of p.exercises) {
+        expect(e.target.sets).toBeGreaterThan(0);
+        expect(e.target.reps).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("creates, updates and deletes a plan", () => {
+    let s = createPlan({ ...emptyStore(), plans: [] }, "  Arms  ", [
+      newPlanExercise("Dumbbell Curl", { sets: 3, reps: 12 }),
+      newPlanExercise("   ", { sets: 3, reps: 12 }), // blank → dropped
+      newPlanExercise("Skullcrusher", { sets: 0, reps: 12 }), // bad target → dropped
+    ]);
+    expect(s.plans).toHaveLength(1);
+    expect(s.plans[0].name).toBe("Arms");
+    expect(s.plans[0].exercises.map((e) => e.name)).toEqual(["Dumbbell Curl"]);
+
+    const renamed = { ...s.plans[0], name: "Gun Show" };
+    s = updatePlan(s, renamed);
+    expect(s.plans[0].name).toBe("Gun Show");
+
+    s = deletePlan(s, s.plans[0].id);
+    expect(s.plans).toHaveLength(0);
+  });
+
+  it("ignores blank names and unknown ids", () => {
+    const base = { ...emptyStore(), plans: [] as Store["plans"] };
+    expect(createPlan(base, "   ", [])).toBe(base);
+    expect(updatePlan(base, { id: "nope", name: "X", exercises: [] })).toBe(base);
+  });
+
+  it("starts a workout from a plan with exercises and targets pre-loaded", () => {
+    const base = emptyStore();
+    const push = base.plans[0];
+    const s = startWorkout(base, "2026-11-12T18:00:00.000Z", push);
+    const w = s.activeWorkout!;
+    expect(w.planId).toBe(push.id);
+    expect(w.planName).toBe("Push Day");
+    expect(w.exercises.map((e) => e.name)).toEqual(push.exercises.map((e) => e.name));
+    expect(w.exercises[0].target).toEqual(push.exercises[0].target);
+    expect(w.exercises[0].sets).toEqual([]);
+    // ids are fresh, not shared with the plan
+    expect(w.exercises[0].id).not.toBe(push.exercises[0].id);
+  });
+
+  it("keeps plan name in history after the plan is deleted", () => {
+    const base = emptyStore();
+    let s = startWorkout(base, "2026-11-12T18:00:00.000Z", base.plans[0]);
+    s = addSet(s, s.activeWorkout!.exercises[0].id, 135, 5);
+    s = finishWorkout(s);
+    s = deletePlan(s, base.plans[0].id);
+    expect(s.workouts[0].planName).toBe("Push Day");
+  });
+
+  it("includes plan exercise names in suggestions", () => {
+    const s = createPlan({ ...emptyStore(), plans: [] }, "Odd", [
+      newPlanExercise("Zercher Squat"),
+    ]);
+    expect(exerciseNameSuggestions(s)).toContain("Zercher Squat");
   });
 });

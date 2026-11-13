@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Dumbbell, History } from "lucide-react";
+import { ClipboardList, Dumbbell, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const links = [
   { href: "/", label: "Today", icon: Dumbbell },
+  { href: "/plans", label: "Plans", icon: ClipboardList },
   { href: "/history", label: "History", icon: History },
 ];
 

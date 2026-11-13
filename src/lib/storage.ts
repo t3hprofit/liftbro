@@ -12,10 +12,18 @@ export type WorkoutSet = {
   reps: number;
 };
 
+/** What a plan asks for: N sets of M reps. Weight is whatever you log. */
+export type SetTarget = {
+  sets: number;
+  reps: number;
+};
+
 export type WorkoutExercise = {
   id: string;
   name: string;
   sets: WorkoutSet[];
+  /** Present when the exercise came from a plan. */
+  target?: SetTarget;
 };
 
 export type Workout = {
@@ -24,6 +32,23 @@ export type Workout = {
   startedAt: string;
   finishedAt?: string;
   exercises: WorkoutExercise[];
+  /** Set when the workout was started from a plan. Name is snapshotted so
+   *  history still reads right after the plan is renamed or deleted. */
+  planId?: string;
+  planName?: string;
+};
+
+export type PlanExercise = {
+  id: string;
+  name: string;
+  target: SetTarget;
+};
+
+/** A reusable workout template, e.g. "Push Day". */
+export type Plan = {
+  id: string;
+  name: string;
+  exercises: PlanExercise[];
 };
 
 export type Store = {
@@ -32,6 +57,8 @@ export type Store = {
   workouts: Workout[];
   /** In-progress session — survives closing the tab mid-workout. */
   activeWorkout: Workout | null;
+  /** Workout templates. Seeded with starters on first load. */
+  plans: Plan[];
 };
 
 const STORAGE_KEY = "liftbro.v1";
@@ -65,23 +92,103 @@ export const SEED_EXERCISES = [
   "Shrug",
 ];
 
+type SeedPlan = { name: string; exercises: [string, number, number][] };
+
+/** Starter templates. Editable and deletable like anything else. */
+const SEED_PLANS: SeedPlan[] = [
+  {
+    name: "Push Day",
+    exercises: [
+      ["Bench Press", 4, 6],
+      ["Overhead Press", 3, 8],
+      ["Incline Bench Press", 3, 10],
+      ["Lateral Raise", 3, 12],
+      ["Tricep Pushdown", 3, 12],
+    ],
+  },
+  {
+    name: "Pull Day",
+    exercises: [
+      ["Deadlift", 3, 5],
+      ["Pull-Up", 3, 8],
+      ["Barbell Row", 3, 8],
+      ["Seated Cable Row", 3, 12],
+      ["Face Pull", 3, 15],
+      ["Dumbbell Curl", 3, 12],
+    ],
+  },
+  {
+    name: "Leg Day",
+    exercises: [
+      ["Squat", 4, 6],
+      ["Romanian Deadlift", 3, 8],
+      ["Leg Press", 3, 10],
+      ["Leg Curl", 3, 12],
+      ["Calf Raise", 4, 15],
+    ],
+  },
+  {
+    name: "Upper",
+    exercises: [
+      ["Bench Press", 4, 6],
+      ["Barbell Row", 4, 6],
+      ["Overhead Press", 3, 8],
+      ["Lat Pulldown", 3, 10],
+      ["Dumbbell Curl", 3, 12],
+      ["Skullcrusher", 3, 12],
+    ],
+  },
+  {
+    name: "Lower",
+    exercises: [
+      ["Squat", 4, 6],
+      ["Deadlift", 3, 5],
+      ["Lunge", 3, 10],
+      ["Leg Extension", 3, 12],
+      ["Hip Thrust", 3, 10],
+      ["Calf Raise", 4, 15],
+    ],
+  },
+];
+
 export function newId(): string {
   return crypto.randomUUID();
 }
 
+export function starterPlans(): Plan[] {
+  return SEED_PLANS.map((p) => ({
+    id: newId(),
+    name: p.name,
+    exercises: p.exercises.map(([name, sets, reps]) => ({
+      id: newId(),
+      name,
+      target: { sets, reps },
+    })),
+  }));
+}
+
+/** A store with no history and the starter plans. */
 export function emptyStore(): Store {
-  return { version: 1, workouts: [], activeWorkout: null };
+  return { version: 1, workouts: [], activeWorkout: null, plans: starterPlans() };
 }
 
 export function loadStore(): Store {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyStore();
-    const parsed = JSON.parse(raw) as Store;
+    const parsed = JSON.parse(raw) as Partial<Store>;
     if (parsed?.version !== 1 || !Array.isArray(parsed.workouts)) {
       return emptyStore();
     }
-    return parsed;
+    // Data saved before plans existed: seed the starters once. An explicit
+    // empty array means the user deleted them all, so leave it alone.
+    const plans = Array.isArray(parsed.plans) ? parsed.plans : starterPlans();
+    return {
+      version: 1,
+      workouts: parsed.workouts,
+      activeWorkout: parsed.activeWorkout ?? null,
+      plans,
+    };
   } catch {
     return emptyStore();
   }
@@ -91,12 +198,28 @@ export function saveStore(store: Store): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
 }
 
-export function startWorkout(store: Store, now = new Date().toISOString()): Store {
+/**
+ * Start a session. With a plan, its exercises are pre-loaded (with targets)
+ * so you just log sets; without one it's a blank freestyle workout.
+ */
+export function startWorkout(
+  store: Store,
+  now = new Date().toISOString(),
+  plan?: Plan
+): Store {
   if (store.activeWorkout) return store;
-  return {
-    ...store,
-    activeWorkout: { id: newId(), startedAt: now, exercises: [] },
-  };
+  const workout: Workout = { id: newId(), startedAt: now, exercises: [] };
+  if (plan) {
+    workout.planId = plan.id;
+    workout.planName = plan.name;
+    workout.exercises = plan.exercises.map((e) => ({
+      id: newId(),
+      name: e.name,
+      sets: [],
+      target: { ...e.target },
+    }));
+  }
+  return { ...store, activeWorkout: workout };
 }
 
 /**
@@ -173,7 +296,47 @@ export function removeSet(store: Store, exerciseId: string, setId: string): Stor
   }));
 }
 
-/** Seed list plus anything the user has ever logged, deduped case-insensitively. */
+// ---------------------------------------------------------------------------
+// Plans
+
+export function isValidTarget(t: SetTarget): boolean {
+  return (
+    Number.isInteger(t.sets) && t.sets > 0 && Number.isInteger(t.reps) && t.reps > 0
+  );
+}
+
+/** Drop blank names and bad targets so a half-filled editor can't save junk. */
+function cleanPlanExercises(exercises: PlanExercise[]): PlanExercise[] {
+  return exercises
+    .map((e) => ({ ...e, name: e.name.trim() }))
+    .filter((e) => e.name && isValidTarget(e.target));
+}
+
+export function newPlanExercise(name: string, target: SetTarget = { sets: 3, reps: 10 }): PlanExercise {
+  return { id: newId(), name: name.trim(), target };
+}
+
+/** Create a plan; returns the store unchanged for a blank name. */
+export function createPlan(store: Store, name: string, exercises: PlanExercise[]): Store {
+  const trimmed = name.trim();
+  if (!trimmed) return store;
+  const plan: Plan = { id: newId(), name: trimmed, exercises: cleanPlanExercises(exercises) };
+  return { ...store, plans: [...store.plans, plan] };
+}
+
+/** Replace a plan by id. Unknown ids and blank names are ignored. */
+export function updatePlan(store: Store, plan: Plan): Store {
+  const name = plan.name.trim();
+  if (!name || !store.plans.some((p) => p.id === plan.id)) return store;
+  const next: Plan = { ...plan, name, exercises: cleanPlanExercises(plan.exercises) };
+  return { ...store, plans: store.plans.map((p) => (p.id === plan.id ? next : p)) };
+}
+
+export function deletePlan(store: Store, planId: string): Store {
+  return { ...store, plans: store.plans.filter((p) => p.id !== planId) };
+}
+
+/** Seed list plus anything the user has ever logged or planned, deduped case-insensitively. */
 export function exerciseNameSuggestions(store: Store): string[] {
   const seen = new Map<string, string>();
   for (const name of SEED_EXERCISES) {
@@ -182,6 +345,12 @@ export function exerciseNameSuggestions(store: Store): string[] {
   const all = [...store.workouts, ...(store.activeWorkout ? [store.activeWorkout] : [])];
   for (const workout of all) {
     for (const exercise of workout.exercises) {
+      const key = exercise.name.toLowerCase();
+      if (!seen.has(key)) seen.set(key, exercise.name);
+    }
+  }
+  for (const plan of store.plans) {
+    for (const exercise of plan.exercises) {
       const key = exercise.name.toLowerCase();
       if (!seen.has(key)) seen.set(key, exercise.name);
     }

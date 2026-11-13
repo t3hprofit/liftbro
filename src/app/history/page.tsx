@@ -41,7 +41,12 @@ export default function HistoryPage() {
         <Card key={workout.id}>
           <CardHeader>
             <div>
-              <CardTitle>{formatWorkoutDate(workout.startedAt)}</CardTitle>
+              <CardTitle>
+                {formatWorkoutDate(workout.startedAt)}
+                {workout.planName && (
+                  <span className="text-muted-foreground"> · {workout.planName}</span>
+                )}
+              </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
                 {formatTime(workout.startedAt)}
                 {workout.finishedAt &&

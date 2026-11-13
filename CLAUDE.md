@@ -6,9 +6,14 @@ version just needs to work.
 ## Product
 
 - Log sets with reps and weight per exercise; multiple exercises per workout
-- History view (duration, set count, total volume)
-- Planned next: daily workout plans (planned vs. actual); more TBD — scope is
-  being fleshed out iteratively with the owner
+- History view (duration, set count, total volume; shows plan name if any)
+- Plans: reusable templates (name + ordered exercises with sets × reps
+  targets). Ships with Push/Pull/Legs + Upper/Lower starters, all editable.
+  Starting from a plan pre-loads exercises; logger shows "2/4 sets" progress
+  and pre-fills target reps. Exercises with zero sets are dropped on finish.
+- Planned next: TBD — scope is being fleshed out iteratively with the owner
+  (ideas: weekly schedule, target weights / progression, planned-vs-actual
+  in history)
 - Look & feel: "gym bro" vibe — dark iron/steel, blood-red accent, Anton
   display font, uppercase headings. Explicitly NOT Planet Fitness purple/yellow.
 
@@ -30,7 +35,8 @@ yet (deliberate, owner decision Nov 2026).
 ## Architecture notes
 
 - All storage mutations are pure functions (Store in → Store out) in
-  `src/lib/storage.ts`; persistence + React binding live in
+  `src/lib/storage.ts`. `loadStore` seeds starter plans only when the saved
+  data has no `plans` key (an empty array means the user deleted them); persistence + React binding live in
   `src/hooks/use-workout-store.ts` via `useSyncExternalStore` (server snapshot
   is null so static HTML hydrates cleanly).
 - PWA: `src/app/manifest.ts` + `public/sw.js` (network-first navigations,

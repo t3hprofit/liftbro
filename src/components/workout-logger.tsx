@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Check, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -46,7 +46,10 @@ function SetLogger({
   update: UpdateFn;
 }) {
   const [weight, setWeight] = useState("");
-  const [reps, setReps] = useState("");
+  // Planned reps are pre-filled: enter the weight, tap SET, done.
+  const [reps, setReps] = useState(() =>
+    exercise.target ? String(exercise.target.reps) : ""
+  );
 
   const parsedWeight = Number.parseFloat(weight);
   const parsedReps = Number.parseInt(reps, 10);
@@ -116,6 +119,26 @@ function SetLogger({
   );
 }
 
+/** "2/4 sets · 6 reps" under a planned exercise; flips to a check when done. */
+function TargetProgress({ exercise }: { exercise: WorkoutExercise }) {
+  const target = exercise.target!;
+  const done = exercise.sets.length;
+  const complete = done >= target.sets;
+  return (
+    <p
+      className={`mt-1 flex items-center gap-1 text-xs tabular-nums ${
+        complete ? "text-primary" : "text-muted-foreground"
+      }`}
+    >
+      {complete && <Check className="size-3.5" />}
+      <span className="font-semibold">
+        {done}/{target.sets}
+      </span>
+      <span> sets · target {target.sets} × {target.reps}</span>
+    </p>
+  );
+}
+
 export function WorkoutLogger({
   workout,
   store,
@@ -130,6 +153,9 @@ export function WorkoutLogger({
 
   return (
     <div className="space-y-4">
+      {workout.planName && (
+        <h1 className="display pt-1 text-2xl">{workout.planName}</h1>
+      )}
       <Card>
         <CardContent className="flex items-center justify-between">
           <div>
@@ -153,7 +179,10 @@ export function WorkoutLogger({
       {workout.exercises.map((exercise) => (
         <Card key={exercise.id}>
           <CardHeader>
-            <CardTitle>{exercise.name}</CardTitle>
+            <div className="min-w-0 flex-1">
+              <CardTitle className="truncate">{exercise.name}</CardTitle>
+              {exercise.target && <TargetProgress exercise={exercise} />}
+            </div>
             <ConfirmButton
               variant="ghost"
               size="icon-sm"
