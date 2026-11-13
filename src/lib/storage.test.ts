@@ -6,8 +6,10 @@ import {
   deleteWorkout,
   emptyStore,
   exerciseNameSuggestions,
+  filterExerciseNames,
   finishWorkout,
   loadStore,
+  recentExerciseNames,
   removeExercise,
   removeSet,
   saveStore,
@@ -158,5 +160,48 @@ describe("persistence", () => {
     expect(loadStore()).toEqual(emptyStore());
     localStorage.setItem("liftbro.v1", JSON.stringify({ version: 99 }));
     expect(loadStore()).toEqual(emptyStore());
+  });
+});
+
+describe("exercise picker helpers", () => {
+  function finished(names: string[], day: number): Store {
+    let s = startWorkout(emptyStore(), `2026-11-${String(day).padStart(2, "0")}T18:00:00.000Z`);
+    for (const n of names) {
+      s = addExercise(s, n);
+      const ex = s.activeWorkout!.exercises.at(-1)!;
+      s = addSet(s, ex.id, 100, 5);
+    }
+    return finishWorkout(s);
+  }
+
+  it("lists recent exercises newest first, deduped, capped", () => {
+    let s = finished(["Squat", "Leg Press"], 1);
+    s = { ...s, workouts: [...s.workouts, ...finished(["Bench Press", "squat"], 2).workouts] };
+    expect(recentExerciseNames(s)).toEqual(["Bench Press", "squat", "Leg Press"]);
+    expect(recentExerciseNames(s, 1)).toEqual(["Bench Press"]);
+  });
+
+  it("counts the active session as most recent", () => {
+    let s = finished(["Squat"], 1);
+    s = startWorkout(s);
+    s = addExercise(s, "Deadlift");
+    expect(recentExerciseNames(s)).toEqual(["Deadlift", "Squat"]);
+  });
+
+  it("returns nothing recent for a fresh store", () => {
+    expect(recentExerciseNames(emptyStore())).toEqual([]);
+  });
+
+  it("filters by every token, case-insensitively", () => {
+    const names = ["Bench Press", "Incline Bench Press", "Leg Press", "Squat"];
+    expect(filterExerciseNames(names, "")).toEqual(names);
+    expect(filterExerciseNames(names, "  ")).toEqual(names);
+    expect(filterExerciseNames(names, "press")).toEqual([
+      "Bench Press",
+      "Incline Bench Press",
+      "Leg Press",
+    ]);
+    expect(filterExerciseNames(names, "inc bench")).toEqual(["Incline Bench Press"]);
+    expect(filterExerciseNames(names, "zzz")).toEqual([]);
   });
 });

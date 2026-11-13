@@ -1,17 +1,17 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ConfirmButton } from "@/components/confirm-button";
+import { ExercisePicker } from "@/components/exercise-picker";
 import { formatElapsed, formatNumber } from "@/lib/format";
 import {
   addExercise,
   addSet,
   cancelWorkout,
-  exerciseNameSuggestions,
   finishWorkout,
   removeExercise,
   removeSet,
@@ -116,42 +116,6 @@ function SetLogger({
   );
 }
 
-function AddExercise({ store, update }: { store: Store; update: UpdateFn }) {
-  const [name, setName] = useState("");
-  const listId = useId();
-  const suggestions = exerciseNameSuggestions(store);
-
-  const submit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    update((s) => addExercise(s, trimmed));
-    setName("");
-  };
-
-  return (
-    <div className="flex gap-2">
-      <Input
-        list={listId}
-        placeholder="Add exercise…"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-        }}
-        className="flex-1"
-      />
-      <datalist id={listId}>
-        {suggestions.map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
-      <Button variant="secondary" onClick={submit} disabled={!name.trim()}>
-        <Plus /> ADD
-      </Button>
-    </div>
-  );
-}
-
 export function WorkoutLogger({
   workout,
   store,
@@ -206,7 +170,11 @@ export function WorkoutLogger({
         </Card>
       ))}
 
-      <AddExercise store={store} update={update} />
+      <ExercisePicker
+        store={store}
+        exclude={workout.exercises.map((e) => e.name)}
+        onPick={(name) => update((s) => addExercise(s, name))}
+      />
 
       <div className="flex gap-2 pt-2">
         <ConfirmButton

@@ -189,6 +189,43 @@ export function exerciseNameSuggestions(store: Store): string[] {
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Exercises the user actually did, most recent first (the active session
+ * counts as most recent). Deduped case-insensitively, capped at `limit`.
+ */
+export function recentExerciseNames(store: Store, limit = 8): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const workouts = [
+    ...(store.activeWorkout ? [store.activeWorkout] : []),
+    ...[...store.workouts].reverse(),
+  ];
+  for (const workout of workouts) {
+    for (const exercise of workout.exercises) {
+      const key = exercise.name.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(exercise.name);
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * Filter exercise names by a search query. Every whitespace-separated token
+ * must appear somewhere in the name (case-insensitive), so "inc bench" finds
+ * "Incline Bench Press". An empty query matches everything.
+ */
+export function filterExerciseNames(names: string[], query: string): string[] {
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return names;
+  return names.filter((name) => {
+    const haystack = name.toLowerCase();
+    return tokens.every((t) => haystack.includes(t));
+  });
+}
+
 export function workoutVolume(workout: Workout): number {
   return workout.exercises.reduce(
     (total, e) => total + e.sets.reduce((sum, s) => sum + s.weight * s.reps, 0),
