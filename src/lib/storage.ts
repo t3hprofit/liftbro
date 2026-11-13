@@ -49,6 +49,8 @@ export type Plan = {
   id: string;
   name: string;
   exercises: PlanExercise[];
+  /** Set when the plan came from the built-in library (see PROGRAM_LIBRARY). */
+  programId?: string;
 };
 
 export type Store = {
@@ -57,8 +59,11 @@ export type Store = {
   workouts: Workout[];
   /** In-progress session — survives closing the tab mid-workout. */
   activeWorkout: Workout | null;
-  /** Workout templates. Seeded with starters on first load. */
+  /** Workout templates. Seeded from the library on first load. */
   plans: Plan[];
+  /** Highest library version whose programs have been offered to this store.
+   *  Lets new built-in programs appear once for existing users. */
+  libraryVersion: number;
 };
 
 const STORAGE_KEY = "liftbro.v1";
@@ -90,63 +95,215 @@ export const SEED_EXERCISES = [
   "Lateral Raise",
   "Face Pull",
   "Shrug",
+  "Chest Fly",
 ];
 
 type SeedPlan = { name: string; exercises: [string, number, number][] };
 
-/** Starter templates. Editable and deletable like anything else. */
-const SEED_PLANS: SeedPlan[] = [
+export type ProgramLevel = "Beginner" | "Intermediate" | "Advanced";
+
+/** A named training program: one or more plans (days) plus a plain-English blurb. */
+export type Program = {
+  id: string;
+  name: string;
+  level: ProgramLevel;
+  daysPerWeek: string;
+  blurb: string;
+  /** Library version that introduced this program (see LIBRARY_VERSION). */
+  since: number;
+  plans: SeedPlan[];
+};
+
+/**
+ * Bump when adding programs. Stores below this version get the new programs
+ * added once on load; deleting them afterwards sticks.
+ */
+export const LIBRARY_VERSION = 2;
+
+/** Built-in programs. Order here is the order days are suggested in. */
+export const PROGRAM_LIBRARY: Program[] = [
   {
-    name: "Push Day",
-    exercises: [
-      ["Bench Press", 4, 6],
-      ["Overhead Press", 3, 8],
-      ["Incline Bench Press", 3, 10],
-      ["Lateral Raise", 3, 12],
-      ["Tricep Pushdown", 3, 12],
+    id: "full-body",
+    name: "Full Body",
+    level: "Beginner",
+    daysPerWeek: "3",
+    since: 2,
+    blurb:
+      "One workout, three times a week. Hits everything, nothing fancy. Start here if you're new.",
+    plans: [
+      {
+        name: "Full Body",
+        exercises: [
+          ["Squat", 3, 8],
+          ["Bench Press", 3, 8],
+          ["Barbell Row", 3, 8],
+          ["Romanian Deadlift", 3, 10],
+          ["Lat Pulldown", 3, 10],
+          ["Dumbbell Curl", 2, 12],
+          ["Tricep Pushdown", 2, 12],
+        ],
+      },
     ],
   },
   {
-    name: "Pull Day",
-    exercises: [
-      ["Deadlift", 3, 5],
-      ["Pull-Up", 3, 8],
-      ["Barbell Row", 3, 8],
-      ["Seated Cable Row", 3, 12],
-      ["Face Pull", 3, 15],
-      ["Dumbbell Curl", 3, 12],
+    id: "ppl",
+    name: "Push / Pull / Legs",
+    level: "Intermediate",
+    daysPerWeek: "3–6",
+    since: 1,
+    blurb:
+      "Pushing muscles one day, pulling the next, legs the third. Run it once or twice a week.",
+    plans: [
+      {
+        name: "Push Day",
+        exercises: [
+          ["Bench Press", 4, 6],
+          ["Overhead Press", 3, 8],
+          ["Incline Bench Press", 3, 10],
+          ["Lateral Raise", 3, 12],
+          ["Tricep Pushdown", 3, 12],
+        ],
+      },
+      {
+        name: "Pull Day",
+        exercises: [
+          ["Deadlift", 3, 5],
+          ["Lat Pulldown", 3, 10],
+          ["Barbell Row", 3, 8],
+          ["Seated Cable Row", 3, 12],
+          ["Face Pull", 3, 15],
+          ["Dumbbell Curl", 3, 12],
+        ],
+      },
+      {
+        name: "Leg Day",
+        exercises: [
+          ["Squat", 4, 6],
+          ["Romanian Deadlift", 3, 8],
+          ["Leg Press", 3, 10],
+          ["Leg Curl", 3, 12],
+          ["Calf Raise", 4, 15],
+        ],
+      },
     ],
   },
   {
-    name: "Leg Day",
-    exercises: [
-      ["Squat", 4, 6],
-      ["Romanian Deadlift", 3, 8],
-      ["Leg Press", 3, 10],
-      ["Leg Curl", 3, 12],
-      ["Calf Raise", 4, 15],
+    id: "upper-lower",
+    name: "Upper / Lower",
+    level: "Intermediate",
+    daysPerWeek: "4",
+    since: 1,
+    blurb: "Upper body one day, lower the next. Four days a week, two of each.",
+    plans: [
+      {
+        name: "Upper",
+        exercises: [
+          ["Bench Press", 4, 6],
+          ["Barbell Row", 4, 6],
+          ["Overhead Press", 3, 8],
+          ["Lat Pulldown", 3, 10],
+          ["Dumbbell Curl", 3, 12],
+          ["Skullcrusher", 3, 12],
+        ],
+      },
+      {
+        name: "Lower",
+        exercises: [
+          ["Squat", 4, 6],
+          ["Deadlift", 3, 5],
+          ["Lunge", 3, 10],
+          ["Leg Extension", 3, 12],
+          ["Hip Thrust", 3, 10],
+          ["Calf Raise", 4, 15],
+        ],
+      },
     ],
   },
   {
-    name: "Upper",
-    exercises: [
-      ["Bench Press", 4, 6],
-      ["Barbell Row", 4, 6],
-      ["Overhead Press", 3, 8],
-      ["Lat Pulldown", 3, 10],
-      ["Dumbbell Curl", 3, 12],
-      ["Skullcrusher", 3, 12],
+    id: "gzclp",
+    name: "GZCLP",
+    level: "Beginner",
+    daysPerWeek: "3–4",
+    since: 2,
+    blurb:
+      "Four short days you cycle through: one heavy lift, one medium, one light. Three exercises per session.",
+    plans: [
+      {
+        name: "GZCLP Day 1",
+        exercises: [
+          ["Squat", 5, 3],
+          ["Bench Press", 3, 10],
+          ["Lat Pulldown", 3, 15],
+        ],
+      },
+      {
+        name: "GZCLP Day 2",
+        exercises: [
+          ["Overhead Press", 5, 3],
+          ["Deadlift", 3, 10],
+          ["Barbell Row", 3, 15],
+        ],
+      },
+      {
+        name: "GZCLP Day 3",
+        exercises: [
+          ["Bench Press", 5, 3],
+          ["Squat", 3, 10],
+          ["Lat Pulldown", 3, 15],
+        ],
+      },
+      {
+        name: "GZCLP Day 4",
+        exercises: [
+          ["Deadlift", 5, 3],
+          ["Overhead Press", 3, 10],
+          ["Barbell Row", 3, 15],
+        ],
+      },
     ],
   },
   {
-    name: "Lower",
-    exercises: [
-      ["Squat", 4, 6],
-      ["Deadlift", 3, 5],
-      ["Lunge", 3, 10],
-      ["Leg Extension", 3, 12],
-      ["Hip Thrust", 3, 10],
-      ["Calf Raise", 4, 15],
+    id: "arnold",
+    name: "Arnold Split",
+    level: "Advanced",
+    daysPerWeek: "6",
+    since: 2,
+    blurb:
+      "Chest & back, shoulders & arms, legs. Each twice a week. Lots of volume, long sessions.",
+    plans: [
+      {
+        name: "Arnold: Chest & Back",
+        exercises: [
+          ["Bench Press", 4, 10],
+          ["Incline Bench Press", 4, 10],
+          ["Chest Fly", 3, 12],
+          ["Pull-Up", 4, 8],
+          ["Barbell Row", 4, 10],
+          ["Seated Cable Row", 3, 12],
+        ],
+      },
+      {
+        name: "Arnold: Shoulders & Arms",
+        exercises: [
+          ["Overhead Press", 4, 10],
+          ["Lateral Raise", 4, 12],
+          ["Face Pull", 3, 15],
+          ["Dumbbell Curl", 4, 10],
+          ["Hammer Curl", 3, 12],
+          ["Skullcrusher", 4, 10],
+          ["Tricep Pushdown", 3, 12],
+        ],
+      },
+      {
+        name: "Arnold: Legs",
+        exercises: [
+          ["Squat", 4, 10],
+          ["Leg Press", 4, 12],
+          ["Romanian Deadlift", 4, 10],
+          ["Leg Curl", 3, 12],
+          ["Calf Raise", 5, 15],
+        ],
+      },
     ],
   },
 ];
@@ -155,21 +312,58 @@ export function newId(): string {
   return crypto.randomUUID();
 }
 
-export function starterPlans(): Plan[] {
-  return SEED_PLANS.map((p) => ({
+function materialize(program: Program, seed: SeedPlan): Plan {
+  return {
     id: newId(),
-    name: p.name,
-    exercises: p.exercises.map(([name, sets, reps]) => ({
+    name: seed.name,
+    programId: program.id,
+    exercises: seed.exercises.map(([name, sets, reps]) => ({
       id: newId(),
       name,
       target: { sets, reps },
     })),
-  }));
+  };
 }
 
-/** A store with no history and the starter plans. */
+/** Fresh copies of every plan in a library program. */
+export function programPlans(programId: string): Plan[] {
+  const program = PROGRAM_LIBRARY.find((p) => p.id === programId);
+  return program ? program.plans.map((seed) => materialize(program, seed)) : [];
+}
+
+/** Every library plan, in library order. What a brand-new store starts with. */
+export function starterPlans(): Plan[] {
+  return PROGRAM_LIBRARY.flatMap((p) => programPlans(p.id));
+}
+
+/** A store with no history and the full plan library. */
 export function emptyStore(): Store {
-  return { version: 1, workouts: [], activeWorkout: null, plans: starterPlans() };
+  return {
+    version: 1,
+    workouts: [],
+    activeWorkout: null,
+    plans: starterPlans(),
+    libraryVersion: LIBRARY_VERSION,
+  };
+}
+
+/**
+ * Add library programs newer than the store's libraryVersion, skipping any
+ * plan whose name already exists. Deleting them afterwards sticks because the
+ * version is bumped.
+ */
+export function syncLibrary(store: Store): Store {
+  if (store.libraryVersion >= LIBRARY_VERSION) return store;
+  const have = new Set(store.plans.map((p) => p.name.toLowerCase()));
+  const added: Plan[] = [];
+  for (const program of PROGRAM_LIBRARY) {
+    if (program.since <= store.libraryVersion) continue;
+    for (const seed of program.plans) {
+      if (have.has(seed.name.toLowerCase())) continue;
+      added.push(materialize(program, seed));
+    }
+  }
+  return { ...store, plans: [...store.plans, ...added], libraryVersion: LIBRARY_VERSION };
 }
 
 export function loadStore(): Store {
@@ -180,15 +374,19 @@ export function loadStore(): Store {
     if (parsed?.version !== 1 || !Array.isArray(parsed.workouts)) {
       return emptyStore();
     }
-    // Data saved before plans existed: seed the starters once. An explicit
-    // empty array means the user deleted them all, so leave it alone.
-    const plans = Array.isArray(parsed.plans) ? parsed.plans : starterPlans();
-    return {
+    // Data saved before plans existed gets the whole library. Data from the
+    // first plans release (no libraryVersion) is treated as version 1 so
+    // syncLibrary adds only what's new.
+    if (!Array.isArray(parsed.plans)) {
+      return { ...emptyStore(), workouts: parsed.workouts, activeWorkout: parsed.activeWorkout ?? null };
+    }
+    return syncLibrary({
       version: 1,
       workouts: parsed.workouts,
       activeWorkout: parsed.activeWorkout ?? null,
-      plans,
-    };
+      plans: parsed.plans,
+      libraryVersion: typeof parsed.libraryVersion === "number" ? parsed.libraryVersion : 1,
+    });
   } catch {
     return emptyStore();
   }
@@ -334,6 +532,47 @@ export function updatePlan(store: Store, plan: Plan): Store {
 
 export function deletePlan(store: Store, planId: string): Store {
   return { ...store, plans: store.plans.filter((p) => p.id !== planId) };
+}
+
+/** Add a library program's plans, skipping names the user already has. */
+export function addProgram(store: Store, programId: string): Store {
+  const have = new Set(store.plans.map((p) => p.name.toLowerCase()));
+  const fresh = programPlans(programId).filter((p) => !have.has(p.name.toLowerCase()));
+  if (fresh.length === 0) return store;
+  return { ...store, plans: [...store.plans, ...fresh] };
+}
+
+/**
+ * The plan to do next: the one after the last finished workout's plan within
+ * the same program (wrapping), or that same plan if it stands alone. Null
+ * when the last workout was freestyle, there's no history, or the plan is gone.
+ */
+export function nextPlan(store: Store): Plan | null {
+  const last = store.workouts[store.workouts.length - 1];
+  if (!last?.planId) return null;
+  const current = store.plans.find((p) => p.id === last.planId);
+  if (!current) return null;
+  const cycle = current.programId
+    ? store.plans.filter((p) => p.programId === current.programId)
+    : [current];
+  const i = cycle.findIndex((p) => p.id === current.id);
+  return cycle[(i + 1) % cycle.length];
+}
+
+/** Sets logged for an exercise in the most recent finished workout that had it. */
+export function lastPerformance(
+  store: Store,
+  exerciseName: string
+): { sets: WorkoutSet[]; date: string } | null {
+  const key = exerciseName.trim().toLowerCase();
+  for (let i = store.workouts.length - 1; i >= 0; i--) {
+    const w = store.workouts[i];
+    const match = w.exercises.find(
+      (e) => e.name.trim().toLowerCase() === key && e.sets.length > 0
+    );
+    if (match) return { sets: match.sets, date: w.startedAt };
+  }
+  return null;
 }
 
 /** Seed list plus anything the user has ever logged or planned, deduped case-insensitively. */

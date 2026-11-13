@@ -8,12 +8,19 @@ version just needs to work.
 - Log sets with reps and weight per exercise; multiple exercises per workout
 - History view (duration, set count, total volume; shows plan name if any)
 - Plans: reusable templates (name + ordered exercises with sets × reps
-  targets). Ships with Push/Pull/Legs + Upper/Lower starters, all editable.
-  Starting from a plan pre-loads exercises; logger shows "2/4 sets" progress
-  and pre-fills target reps. Exercises with zero sets are dropped on finish.
-- Planned next: TBD — scope is being fleshed out iteratively with the owner
-  (ideas: weekly schedule, target weights / progression, planned-vs-actual
-  in history)
+  targets), all editable. Built-in library (`PROGRAM_LIBRARY` in storage.ts):
+  Full Body, Push/Pull/Legs, Upper/Lower, GZCLP, Arnold Split, each with a
+  level badge + blurb. Plans page → LIBRARY re-adds deleted ones. Pull Day
+  uses Lat Pulldown, not Pull-Up (owner request).
+- Today: "Next up" suggests the day after the last finished plan within its
+  program (wraps); plans listed grouped by program; Freestyle for a blank one.
+- Logger: "2/4 sets · target 4 × 6" per planned exercise; reps pre-filled
+  from target, weight pre-filled from last time ("Last time: 135×10, …").
+  Exercises with zero sets are dropped on finish.
+- Target audience includes the owner's wife, who is new to lifting and to
+  apps: favour fewer decisions, pre-filled values, plain-English labels.
+- Planned next: TBD (ideas: weekly schedule, target weights / progression,
+  planned-vs-actual in history, rest timer)
 - Look & feel: "gym bro" vibe — dark iron/steel, blood-red accent, Anton
   display font, uppercase headings. Explicitly NOT Planet Fitness purple/yellow.
 
@@ -35,8 +42,10 @@ yet (deliberate, owner decision Nov 2026).
 ## Architecture notes
 
 - All storage mutations are pure functions (Store in → Store out) in
-  `src/lib/storage.ts`. `loadStore` seeds starter plans only when the saved
-  data has no `plans` key (an empty array means the user deleted them); persistence + React binding live in
+  `src/lib/storage.ts`. Library seeding is versioned: `LIBRARY_VERSION` +
+  `Program.since`; `loadStore` → `syncLibrary` adds only programs newer than
+  the store's `libraryVersion`, skipping plan names already present, so
+  deletions stick. Bump `LIBRARY_VERSION` when adding a program; persistence + React binding live in
   `src/hooks/use-workout-store.ts` via `useSyncExternalStore` (server snapshot
   is null so static HTML hydrates cleanly).
 - PWA: `src/app/manifest.ts` + `public/sw.js` (network-first navigations,

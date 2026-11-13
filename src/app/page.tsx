@@ -1,12 +1,53 @@
 "use client";
 
-import { Dumbbell, Play } from "lucide-react";
+import { ChevronRight, Dumbbell, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { WorkoutLogger } from "@/components/workout-logger";
 import { useWorkoutStore } from "@/hooks/use-workout-store";
 import { formatNumber, formatWorkoutDate } from "@/lib/format";
-import { startWorkout, workoutSetCount, workoutVolume } from "@/lib/storage";
+import {
+  nextPlan,
+  PROGRAM_LIBRARY,
+  startWorkout,
+  workoutSetCount,
+  workoutVolume,
+  type Plan,
+  type ProgramLevel,
+} from "@/lib/storage";
+import { LevelBadge } from "@/components/level-badge";
+
+function PlanRow({ plan, onStart }: { plan: Plan; onStart: () => void }) {
+  return (
+    <button type="button" className="block w-full text-left" onClick={onStart}>
+      <Card className="transition-colors hover:bg-muted/60 active:bg-muted">
+        <CardContent className="flex items-center gap-3 py-3">
+          <Play className="size-4 shrink-0 fill-muted-foreground text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="display text-lg">{plan.name}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {plan.exercises.map((e) => e.name).join(" · ")}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </button>
+  );
+}
+
+/** Plans grouped by library program (in library order), custom plans last. */
+function groupPlans(plans: Plan[]) {
+  const groups: { label: string; level?: ProgramLevel; plans: Plan[] }[] = [];
+  for (const program of PROGRAM_LIBRARY) {
+    const mine = plans.filter((p) => p.programId === program.id);
+    if (mine.length) groups.push({ label: program.name, level: program.level, plans: mine });
+  }
+  const custom = plans.filter(
+    (p) => !p.programId || !PROGRAM_LIBRARY.some((pr) => pr.id === p.programId)
+  );
+  if (custom.length) groups.push({ label: "My plans", plans: custom });
+  return groups;
+}
 
 export default function TodayPage() {
   const { store, update } = useWorkoutStore();
@@ -22,6 +63,8 @@ export default function TodayPage() {
   }
 
   const last = store.workouts[store.workouts.length - 1];
+  const suggested = nextPlan(store);
+  const groups = groupPlans(store.plans);
 
   return (
     <div className="flex flex-col gap-6 pt-8">
@@ -41,30 +84,56 @@ export default function TodayPage() {
           <Dumbbell className="size-6" /> START WORKOUT
         </Button>
       ) : (
-        <div className="space-y-2">
-          <p className="text-xs tracking-widest text-muted-foreground uppercase">
-            Pick a plan
-          </p>
-          {store.plans.map((plan) => (
-            <button
-              key={plan.id}
-              type="button"
-              className="block w-full text-left"
-              onClick={() => update((s) => startWorkout(s, undefined, plan))}
-            >
-              <Card className="border-primary/40 transition-colors hover:bg-muted/60 active:bg-muted">
-                <CardContent className="flex items-center gap-3 py-3">
-                  <Play className="size-5 shrink-0 fill-primary text-primary" />
-                  <div className="min-w-0 flex-1">
-                    <p className="display text-lg">{plan.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {plan.exercises.map((e) => e.name).join(" · ")}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </button>
-          ))}
+        <div className="space-y-5">
+          {suggested && (
+            <div className="space-y-2">
+              <p className="text-xs tracking-widest text-muted-foreground uppercase">
+                Next up
+              </p>
+              <button
+                type="button"
+                className="block w-full text-left"
+                onClick={() => update((s) => startWorkout(s, undefined, suggested))}
+              >
+                <Card className="border-primary bg-primary/10 transition-colors hover:bg-primary/15 active:bg-primary/20">
+                  <CardContent className="flex items-center gap-3">
+                    <Play className="size-7 shrink-0 fill-primary text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="display text-2xl">{suggested.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {suggested.exercises.map((e) => e.name).join(" · ")}
+                      </p>
+                    </div>
+                    <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+                  </CardContent>
+                </Card>
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <p className="text-xs tracking-widest text-muted-foreground uppercase">
+              {suggested ? "Or pick a plan" : "Pick a plan"}
+            </p>
+            {groups.map(({ label, level, plans }) => (
+              <div key={label} className="space-y-1.5 pt-1">
+                <div className="flex items-center gap-2 px-1">
+                  <p className="display text-sm tracking-wide text-muted-foreground">
+                    {label}
+                  </p>
+                  {level && <LevelBadge level={level} />}
+                </div>
+                {plans.map((plan) => (
+                  <PlanRow
+                    key={plan.id}
+                    plan={plan}
+                    onStart={() => update((s) => startWorkout(s, undefined, plan))}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+
           <Button
             variant="outline"
             size="lg"

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addExercise,
   addSet,
+  addProgram,
   cancelWorkout,
   createPlan,
   deletePlan,
@@ -10,8 +11,12 @@ import {
   exerciseNameSuggestions,
   filterExerciseNames,
   finishWorkout,
+  lastPerformance,
+  LIBRARY_VERSION,
   loadStore,
   newPlanExercise,
+  nextPlan,
+  PROGRAM_LIBRARY,
   recentExerciseNames,
   removeExercise,
   removeSet,
@@ -19,6 +24,7 @@ import {
   SEED_EXERCISES,
   starterPlans,
   startWorkout,
+  syncLibrary,
   updatePlan,
   workoutSetCount,
   workoutVolume,
@@ -171,17 +177,47 @@ describe("persistence", () => {
     expect(fresh(loadStore())).toBe(true);
   });
 
-  it("seeds starter plans into pre-plans data, but respects an emptied list", () => {
+  it("gives pre-plans data the whole library", () => {
     localStorage.setItem(
       "liftbro.v1",
       JSON.stringify({ version: 1, workouts: [], activeWorkout: null })
     );
-    expect(loadStore().plans.length).toBe(starterPlans().length);
+    const s = loadStore();
+    expect(s.plans.length).toBe(starterPlans().length);
+    expect(s.libraryVersion).toBe(LIBRARY_VERSION);
+  });
+
+  it("adds only new programs to first-release data, keeping deletions", () => {
+    // First plans release: PPL + Upper/Lower, user deleted Upper/Lower, no libraryVersion.
+    const v1 = { ...emptyStore(), plans: [] as Store["plans"] };
+    const ppl = addProgram(v1, "ppl");
     localStorage.setItem(
       "liftbro.v1",
-      JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: [] })
+      JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: ppl.plans })
+    );
+    const s = loadStore();
+    const names = s.plans.map((p) => p.name);
+    expect(names).toContain("Push Day");
+    expect(names).not.toContain("Upper"); // since: 1, already offered
+    expect(names).toContain("Full Body"); // since: 2, new
+    expect(names).toContain("GZCLP Day 1");
+    expect(names).toContain("Arnold: Legs");
+    expect(s.libraryVersion).toBe(LIBRARY_VERSION);
+  });
+
+  it("leaves an up-to-date emptied list alone", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({
+        version: 1,
+        workouts: [],
+        activeWorkout: null,
+        plans: [],
+        libraryVersion: LIBRARY_VERSION,
+      })
     );
     expect(loadStore().plans).toEqual([]);
+    expect(syncLibrary(loadStore()).plans).toEqual([]);
   });
 });
 
@@ -229,16 +265,13 @@ describe("exercise picker helpers", () => {
 });
 
 describe("plans", () => {
-  it("ships with starter plans that have valid targets", () => {
+  it("ships with the whole library, every plan with valid targets", () => {
     const s = emptyStore();
-    expect(s.plans.map((p) => p.name)).toEqual([
-      "Push Day",
-      "Pull Day",
-      "Leg Day",
-      "Upper",
-      "Lower",
-    ]);
+    const expected = PROGRAM_LIBRARY.flatMap((p) => p.plans.map((d) => d.name));
+    expect(s.plans.map((p) => p.name)).toEqual(expected);
+    expect(s.plans.map((p) => p.name)).toContain("Push Day");
     for (const p of s.plans) {
+      expect(p.programId).toBeTruthy();
       expect(p.exercises.length).toBeGreaterThan(0);
       for (const e of p.exercises) {
         expect(e.target.sets).toBeGreaterThan(0);
@@ -273,7 +306,7 @@ describe("plans", () => {
 
   it("starts a workout from a plan with exercises and targets pre-loaded", () => {
     const base = emptyStore();
-    const push = base.plans[0];
+    const push = base.plans.find((p) => p.name === "Push Day")!;
     const s = startWorkout(base, "2026-11-12T18:00:00.000Z", push);
     const w = s.activeWorkout!;
     expect(w.planId).toBe(push.id);
@@ -287,10 +320,11 @@ describe("plans", () => {
 
   it("keeps plan name in history after the plan is deleted", () => {
     const base = emptyStore();
-    let s = startWorkout(base, "2026-11-12T18:00:00.000Z", base.plans[0]);
+    const push = base.plans.find((p) => p.name === "Push Day")!;
+    let s = startWorkout(base, "2026-11-12T18:00:00.000Z", push);
     s = addSet(s, s.activeWorkout!.exercises[0].id, 135, 5);
     s = finishWorkout(s);
-    s = deletePlan(s, base.plans[0].id);
+    s = deletePlan(s, push.id);
     expect(s.workouts[0].planName).toBe("Push Day");
   });
 
@@ -299,5 +333,82 @@ describe("plans", () => {
       newPlanExercise("Zercher Squat"),
     ]);
     expect(exerciseNameSuggestions(s)).toContain("Zercher Squat");
+  });
+});
+
+describe("library and guidance", () => {
+  const byName = (s: Store, name: string) => s.plans.find((p) => p.name === name)!;
+
+  function doPlan(s: Store, name: string, day: string): Store {
+    const plan = byName(s, name);
+    let next = startWorkout(s, `2026-11-${day}T18:00:00.000Z`, plan);
+    next = addSet(next, next.activeWorkout!.exercises[0].id, 100, 5);
+    return finishWorkout(next);
+  }
+
+  it("addProgram adds a program's plans and skips names already present", () => {
+    const base = { ...emptyStore(), plans: [] as Store["plans"] };
+    let s = addProgram(base, "gzclp");
+    expect(s.plans.map((p) => p.name)).toEqual([
+      "GZCLP Day 1",
+      "GZCLP Day 2",
+      "GZCLP Day 3",
+      "GZCLP Day 4",
+    ]);
+    expect(s.plans[0].programId).toBe("gzclp");
+    s = deletePlan(s, s.plans[1].id);
+    s = addProgram(s, "gzclp"); // only Day 2 comes back
+    expect(s.plans).toHaveLength(4);
+    expect(addProgram(s, "nope")).toBe(s);
+  });
+
+  it("pull day no longer asks for pull-ups", () => {
+    const pull = byName(emptyStore(), "Pull Day");
+    expect(pull.exercises.map((e) => e.name)).not.toContain("Pull-Up");
+    expect(pull.exercises.map((e) => e.name)).toContain("Lat Pulldown");
+  });
+
+  it("suggests the next day in a program, wrapping at the end", () => {
+    let s = emptyStore();
+    expect(nextPlan(s)).toBeNull();
+    s = doPlan(s, "GZCLP Day 1", "01");
+    expect(nextPlan(s)!.name).toBe("GZCLP Day 2");
+    s = doPlan(s, "GZCLP Day 4", "02");
+    expect(nextPlan(s)!.name).toBe("GZCLP Day 1");
+  });
+
+  it("suggests the same plan for single-day programs and custom plans", () => {
+    let s = doPlan(emptyStore(), "Full Body", "01");
+    expect(nextPlan(s)!.name).toBe("Full Body");
+    s = createPlan(s, "Arms", [newPlanExercise("Dumbbell Curl")]);
+    s = doPlan(s, "Arms", "02");
+    expect(nextPlan(s)!.name).toBe("Arms");
+  });
+
+  it("suggests nothing after freestyle or when the plan is gone", () => {
+    let s = startWorkout(emptyStore(), "2026-11-01T18:00:00.000Z");
+    s = addExercise(s, "Squat");
+    s = addSet(s, s.activeWorkout!.exercises[0].id, 100, 5);
+    s = finishWorkout(s);
+    expect(nextPlan(s)).toBeNull();
+    s = doPlan(s, "Full Body", "02");
+    s = deletePlan(s, byName(s, "Full Body").id);
+    expect(nextPlan(s)).toBeNull();
+  });
+
+  it("finds the last logged sets for an exercise, case-insensitively", () => {
+    let s = startWorkout(emptyStore(), "2026-11-01T18:00:00.000Z");
+    s = addExercise(s, "Bench Press");
+    const id = s.activeWorkout!.exercises[0].id;
+    s = addSet(s, id, 135, 8);
+    s = addSet(s, id, 140, 6);
+    s = finishWorkout(s);
+    expect(lastPerformance(s, "bench press")!.sets.map((x) => x.weight)).toEqual([135, 140]);
+    expect(lastPerformance(s, "bench press")!.date).toBe("2026-11-01T18:00:00.000Z");
+    expect(lastPerformance(s, "Squat")).toBeNull();
+    // the active workout doesn't count — only finished history
+    s = startWorkout(s);
+    s = addExercise(s, "Squat");
+    expect(lastPerformance(s, "Squat")).toBeNull();
   });
 });

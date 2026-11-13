@@ -13,6 +13,7 @@ import {
   addSet,
   cancelWorkout,
   finishWorkout,
+  lastPerformance,
   removeExercise,
   removeSet,
   workoutVolume,
@@ -40,16 +41,23 @@ function SessionClock({ startedAt }: { startedAt: string }) {
 
 function SetLogger({
   exercise,
+  store,
   update,
 }: {
   exercise: WorkoutExercise;
+  store: Store;
   update: UpdateFn;
 }) {
-  const [weight, setWeight] = useState("");
-  // Planned reps are pre-filled: enter the weight, tap SET, done.
-  const [reps, setReps] = useState(() =>
-    exercise.target ? String(exercise.target.reps) : ""
+  const last = lastPerformance(store, exercise.name);
+  // Pre-fill what you did last time and what the plan asks for, so a set is
+  // usually just one tap on LOG SET.
+  const [weight, setWeight] = useState(() =>
+    last ? formatNumber(last.sets[last.sets.length - 1].weight) : ""
   );
+  const [reps, setReps] = useState(() => {
+    if (exercise.target) return String(exercise.target.reps);
+    return last ? String(last.sets[last.sets.length - 1].reps) : "";
+  });
 
   const parsedWeight = Number.parseFloat(weight);
   const parsedReps = Number.parseInt(reps, 10);
@@ -67,6 +75,12 @@ function SetLogger({
 
   return (
     <div className="space-y-2">
+      {last && (
+        <p className="text-xs text-muted-foreground tabular-nums">
+          Last time:{" "}
+          {last.sets.map((s) => `${formatNumber(s.weight)}×${s.reps}`).join(", ")}
+        </p>
+      )}
       {exercise.sets.length > 0 && (
         <ul className="space-y-1.5">
           {exercise.sets.map((set, i) => (
@@ -109,10 +123,10 @@ function SetLogger({
           placeholder="Reps"
           value={reps}
           onChange={(e) => setReps(e.target.value)}
-          className="w-24"
+          className="w-20"
         />
         <Button onClick={logSet} disabled={!valid} aria-label="Log set">
-          <Plus /> SET
+          <Plus /> LOG SET
         </Button>
       </div>
     </div>
@@ -194,7 +208,7 @@ export function WorkoutLogger({
             </ConfirmButton>
           </CardHeader>
           <CardContent>
-            <SetLogger exercise={exercise} update={update} />
+            <SetLogger exercise={exercise} store={store} update={update} />
           </CardContent>
         </Card>
       ))}
