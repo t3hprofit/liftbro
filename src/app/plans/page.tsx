@@ -11,25 +11,16 @@ import {
   createPlan,
   createProgram,
   deletePlan,
-  PROGRAM_LIBRARY,
+  planGroups,
   programIdByName,
   programsByLevel,
   updatePlan,
   type Plan,
-  type Store,
 } from "@/lib/storage";
 import { LevelBadge } from "@/components/level-badge";
 
 /** "new" = creating; "library" = browsing programs; a plan id = editing; null = list. */
 type Mode = null | "new" | "library" | { editId: string };
-
-function programName(store: Store, programId?: string): string | undefined {
-  if (!programId) return undefined;
-  return (
-    PROGRAM_LIBRARY.find((p) => p.id === programId)?.name ??
-    store.programs.find((p) => p.id === programId)?.name
-  );
-}
 
 export default function PlansPage() {
   const { store, update } = useWorkoutStore();
@@ -149,30 +140,38 @@ export default function PlansPage() {
           </p>
         </div>
       ) : (
-        store.plans.map((plan) => (
-          <button
-            key={plan.id}
-            type="button"
-            className="block w-full text-left"
-            onClick={() => setMode({ editId: plan.id })}
-          >
-            <Card className="transition-colors hover:bg-muted/60 active:bg-muted">
-              <CardContent className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="display text-lg">{plan.name}</p>
-                  <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {programName(store, plan.programId) &&
-                      `${programName(store, plan.programId)} · `}
-                    {plan.exercises.length}{" "}
-                    {plan.exercises.length === 1 ? "exercise" : "exercises"}
-                    {plan.exercises.length > 0 &&
-                      ` · ${plan.exercises.map((e) => e.name).join(" · ")}`}
-                  </p>
-                </div>
-                <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
-              </CardContent>
-            </Card>
-          </button>
+        planGroups(store).map(({ key, label, level, plans }) => (
+          <div key={key} className="space-y-1.5 pt-1">
+            <div className="flex items-center gap-2 px-1">
+              <p className="display text-sm tracking-wide text-muted-foreground">
+                {label}
+              </p>
+              {level && <LevelBadge level={level} />}
+            </div>
+            {plans.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                className="block w-full text-left"
+                onClick={() => setMode({ editId: plan.id })}
+              >
+                <Card className="transition-colors hover:bg-muted/60 active:bg-muted">
+                  <CardContent className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="display text-lg">{plan.name}</p>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {plan.exercises.length}{" "}
+                        {plan.exercises.length === 1 ? "exercise" : "exercises"}
+                        {plan.exercises.length > 0 &&
+                          ` · ${plan.exercises.map((e) => e.name).join(" · ")}`}
+                      </p>
+                    </div>
+                    <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+                  </CardContent>
+                </Card>
+              </button>
+            ))}
+          </div>
         ))
       )}
     </div>
