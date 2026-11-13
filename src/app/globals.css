@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-anton);
+  --font-heading: var(--font-anton);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/*
+  LiftBro Design System — "Iron Basement"
+  Dark-only. Near-black iron, steel grays, chalk white text, blood-red accent.
+  Heavy condensed display type (Anton) for headings, uppercase.
+  Explicitly NOT a purple-and-yellow judgement-free zone.
+*/
+:root {
+  --background: #0b0b0c;
+  --foreground: #ececea;
+
+  --card: #151517;
+  --card-foreground: #ececea;
+
+  --popover: #1a1a1d;
+  --popover-foreground: #ececea;
+
+  /* Primary = blood red. The color of PRs and torn calluses. */
+  --primary: #d92323;
+  --primary-foreground: #ffffff;
+
+  --secondary: #222225;
+  --secondary-foreground: #ececea;
+
+  --muted: #1c1c1f;
+  --muted-foreground: #9b9b94;
+
+  --accent: #222225;
+  --accent-foreground: #ececea;
+
+  --destructive: #ef4444;
+
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.13);
+  --ring: #d92323;
+
+  --radius: 0.5rem;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Heavy plate-style headings */
+.display {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
