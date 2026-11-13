@@ -205,6 +205,21 @@ describe("persistence", () => {
     expect(s.libraryVersion).toBe(LIBRARY_VERSION);
   });
 
+  it("adds the bodyweight circuits to version-2 stores", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({
+        version: 1,
+        workouts: [],
+        activeWorkout: null,
+        plans: [],
+        libraryVersion: 2,
+      })
+    );
+    const names = loadStore().plans.map((p) => p.name);
+    expect(names).toEqual(["Bodyweight Circuit", "Bodyweight Burner"]);
+  });
+
   it("leaves an up-to-date emptied list alone", () => {
     localStorage.setItem(
       "liftbro.v1",

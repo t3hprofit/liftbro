@@ -96,6 +96,14 @@ export const SEED_EXERCISES = [
   "Face Pull",
   "Shrug",
   "Chest Fly",
+  "Push-Up",
+  "Air Squat",
+  "Jump Squat",
+  "Glute Bridge",
+  "Burpee",
+  "Mountain Climber",
+  "Crunch",
+  "Hanging Knee Raise",
 ];
 
 type SeedPlan = { name: string; exercises: [string, number, number][] };
@@ -118,7 +126,7 @@ export type Program = {
  * Bump when adding programs. Stores below this version get the new programs
  * added once on load; deleting them afterwards sticks.
  */
-export const LIBRARY_VERSION = 2;
+export const LIBRARY_VERSION = 3;
 
 /** Built-in programs. Order here is the order days are suggested in. */
 export const PROGRAM_LIBRARY: Program[] = [
@@ -302,6 +310,50 @@ export const PROGRAM_LIBRARY: Program[] = [
           ["Romanian Deadlift", 4, 10],
           ["Leg Curl", 3, 12],
           ["Calf Raise", 5, 15],
+        ],
+      },
+    ],
+  },
+  {
+    id: "bodyweight-circuit",
+    name: "Bodyweight Circuit",
+    level: "Beginner",
+    daysPerWeek: "2–4",
+    since: 3,
+    blurb:
+      "No equipment, no excuses. Run through everything once, rest a couple minutes, repeat — sets are your rounds. Log weight as 0.",
+    plans: [
+      {
+        name: "Bodyweight Circuit",
+        exercises: [
+          ["Air Squat", 3, 15],
+          ["Push-Up", 3, 10],
+          ["Lunge", 3, 10],
+          ["Glute Bridge", 3, 15],
+          ["Mountain Climber", 3, 20],
+          ["Crunch", 3, 15],
+        ],
+      },
+    ],
+  },
+  {
+    id: "bodyweight-burner",
+    name: "Bodyweight Burner",
+    level: "Intermediate",
+    daysPerWeek: "2–3",
+    since: 3,
+    blurb:
+      "Circuit for when you've got a pull-up bar and something to dip on. Four rounds, minimal rest. Log weight as 0 — or strap some on.",
+    plans: [
+      {
+        name: "Bodyweight Burner",
+        exercises: [
+          ["Pull-Up", 4, 6],
+          ["Push-Up", 4, 15],
+          ["Jump Squat", 4, 12],
+          ["Dip", 4, 8],
+          ["Hanging Knee Raise", 4, 10],
+          ["Burpee", 4, 10],
         ],
       },
     ],
