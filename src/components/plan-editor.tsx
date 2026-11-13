@@ -7,7 +7,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ConfirmButton } from "@/components/confirm-button";
 import { ExercisePicker } from "@/components/exercise-picker";
-import { newId, type Plan, type PlanExercise, type Store } from "@/lib/storage";
+import {
+  newId,
+  PROGRAM_LIBRARY,
+  type Plan,
+  type PlanExercise,
+  type Store,
+} from "@/lib/storage";
 
 /** Editor-local row: targets stay strings while typing so "" is allowed. */
 type Row = { id: string; name: string; sets: string; reps: string };
@@ -36,9 +42,13 @@ function toExercises(rows: Row[]): PlanExercise[] {
   }));
 }
 
+/** Sentinel select value for "create a new program". */
+const NEW_PROGRAM = "__new__";
+
 /**
  * Create or edit a plan. Rows are an ordered list of exercises with
  * sets × reps targets; exercises are added via the same picker used mid-workout.
+ * Plans can be tagged into a program (existing or new) so they rotate together.
  */
 export function PlanEditor({
   plan,
@@ -50,15 +60,26 @@ export function PlanEditor({
   /** null = creating a new plan */
   plan: Plan | null;
   store: Store;
-  onSave: (plan: Plan) => void;
+  /** newProgramName is set when the user picked "+ New program" — create it
+   *  (or join the existing program of that name) and tag the plan into it. */
+  onSave: (plan: Plan, newProgramName?: string) => void;
   onCancel: () => void;
   onDelete?: () => void;
 }) {
   const [name, setName] = useState(plan?.name ?? "");
   const [rows, setRows] = useState<Row[]>(() => toRows(plan));
+  const [programSel, setProgramSel] = useState(plan?.programId ?? "");
+  const [newProgramName, setNewProgramName] = useState("");
+
+  // Editing a built-in program's day: keep that program selectable so saving
+  // doesn't silently pull the plan out of its rotation.
+  const builtIn = PROGRAM_LIBRARY.find((p) => p.id === plan?.programId);
 
   const exercises = toExercises(rows);
-  const canSave = name.trim().length > 0 && exercises.length > 0;
+  const canSave =
+    name.trim().length > 0 &&
+    exercises.length > 0 &&
+    (programSel !== NEW_PROGRAM || newProgramName.trim().length > 0);
 
   const patch = (id: string, changes: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...changes } : r)));
@@ -88,6 +109,41 @@ export function PlanEditor({
         onChange={(e) => setName(e.target.value)}
         className="display h-12 text-lg tracking-wide"
       />
+
+      <div className="space-y-2">
+        <label
+          htmlFor="plan-program"
+          className="px-1 text-[0.65rem] font-semibold tracking-widest text-muted-foreground uppercase"
+        >
+          Program
+        </label>
+        <select
+          id="plan-program"
+          value={programSel}
+          onChange={(e) => setProgramSel(e.target.value)}
+          className="h-10 w-full rounded-lg border border-input bg-input/20 px-3 text-base text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40"
+        >
+          <option value="">None — standalone plan</option>
+          {builtIn && <option value={builtIn.id}>{builtIn.name} (built-in)</option>}
+          {store.programs.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+          <option value={NEW_PROGRAM}>+ New program…</option>
+        </select>
+        {programSel === NEW_PROGRAM && (
+          <Input
+            placeholder="Program name (e.g. My Split)"
+            aria-label="New program name"
+            value={newProgramName}
+            onChange={(e) => setNewProgramName(e.target.value)}
+          />
+        )}
+        <p className="px-1 text-xs text-muted-foreground">
+          Plans in a program take turns as &ldquo;Next up&rdquo; on Today.
+        </p>
+      </div>
 
       {rows.length > 0 && (
         <Card>
@@ -179,7 +235,16 @@ export function PlanEditor({
           className="display flex-1 tracking-widest"
           disabled={!canSave}
           onClick={() =>
-            onSave({ id: plan?.id ?? newId(), name: name.trim(), exercises })
+            onSave(
+              {
+                id: plan?.id ?? newId(),
+                name: name.trim(),
+                exercises,
+                programId:
+                  programSel && programSel !== NEW_PROGRAM ? programSel : undefined,
+              },
+              programSel === NEW_PROGRAM ? newProgramName.trim() : undefined
+            )
           }
         >
           SAVE PLAN
@@ -187,7 +252,7 @@ export function PlanEditor({
       </div>
       {!canSave && (
         <p className="text-center text-xs text-muted-foreground">
-          Name it and add at least one exercise with sets and reps.
+          Name it, add at least one exercise, and name any new program.
         </p>
       )}
     </div>

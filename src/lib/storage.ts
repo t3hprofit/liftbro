@@ -49,8 +49,15 @@ export type Plan = {
   id: string;
   name: string;
   exercises: PlanExercise[];
-  /** Set when the plan came from the built-in library (see PROGRAM_LIBRARY). */
+  /** Groups plans that cycle together: a built-in program (see
+   *  PROGRAM_LIBRARY) or a user-created one (see Store.programs). */
   programId?: string;
+};
+
+/** A user-created program: a named group of plans that rotate through Next up. */
+export type UserProgram = {
+  id: string;
+  name: string;
 };
 
 export type Store = {
@@ -61,6 +68,8 @@ export type Store = {
   activeWorkout: Workout | null;
   /** Workout templates. Seeded from the library on first load. */
   plans: Plan[];
+  /** User-created programs. Built-in ones live in PROGRAM_LIBRARY. */
+  programs: UserProgram[];
   /** Highest library version whose programs have been offered to this store.
    *  Lets new built-in programs appear once for existing users. */
   libraryVersion: number;
@@ -395,6 +404,7 @@ export function emptyStore(): Store {
     workouts: [],
     activeWorkout: null,
     plans: starterPlans(),
+    programs: [],
     libraryVersion: LIBRARY_VERSION,
   };
 }
@@ -437,6 +447,7 @@ export function loadStore(): Store {
       workouts: parsed.workouts,
       activeWorkout: parsed.activeWorkout ?? null,
       plans: parsed.plans,
+      programs: Array.isArray(parsed.programs) ? parsed.programs : [],
       libraryVersion: typeof parsed.libraryVersion === "number" ? parsed.libraryVersion : 1,
     });
   } catch {
@@ -566,11 +577,52 @@ export function newPlanExercise(name: string, target: SetTarget = { sets: 3, rep
   return { id: newId(), name: name.trim(), target };
 }
 
-/** Create a plan; returns the store unchanged for a blank name. */
-export function createPlan(store: Store, name: string, exercises: PlanExercise[]): Store {
+/** Drop user programs no plan references anymore. */
+function pruneEmptyPrograms(store: Store): Store {
+  if (store.programs.length === 0) return store;
+  const used = new Set(store.plans.map((p) => p.programId));
+  const programs = store.programs.filter((p) => used.has(p.id));
+  return programs.length === store.programs.length ? store : { ...store, programs };
+}
+
+/** Add a user program. Blank names and duplicates (case-insensitive, library
+ *  included) are ignored — tagging a plan with the existing name joins it. */
+export function createProgram(store: Store, name: string): Store {
   const trimmed = name.trim();
   if (!trimmed) return store;
-  const plan: Plan = { id: newId(), name: trimmed, exercises: cleanPlanExercises(exercises) };
+  const key = trimmed.toLowerCase();
+  const taken =
+    store.programs.some((p) => p.name.toLowerCase() === key) ||
+    PROGRAM_LIBRARY.some((p) => p.name.toLowerCase() === key);
+  if (taken) return store;
+  return { ...store, programs: [...store.programs, { id: newId(), name: trimmed }] };
+}
+
+/** Id of the program with this name (case-insensitive) — user-created or
+ *  built-in, so typing "GZCLP" joins the built-in rotation. */
+export function programIdByName(store: Store, name: string): string | undefined {
+  const key = name.trim().toLowerCase();
+  return (
+    store.programs.find((p) => p.name.toLowerCase() === key)?.id ??
+    PROGRAM_LIBRARY.find((p) => p.name.toLowerCase() === key)?.id
+  );
+}
+
+/** Create a plan; returns the store unchanged for a blank name. */
+export function createPlan(
+  store: Store,
+  name: string,
+  exercises: PlanExercise[],
+  programId?: string
+): Store {
+  const trimmed = name.trim();
+  if (!trimmed) return store;
+  const plan: Plan = {
+    id: newId(),
+    name: trimmed,
+    exercises: cleanPlanExercises(exercises),
+    ...(programId ? { programId } : {}),
+  };
   return { ...store, plans: [...store.plans, plan] };
 }
 
@@ -579,11 +631,17 @@ export function updatePlan(store: Store, plan: Plan): Store {
   const name = plan.name.trim();
   if (!name || !store.plans.some((p) => p.id === plan.id)) return store;
   const next: Plan = { ...plan, name, exercises: cleanPlanExercises(plan.exercises) };
-  return { ...store, plans: store.plans.map((p) => (p.id === plan.id ? next : p)) };
+  return pruneEmptyPrograms({
+    ...store,
+    plans: store.plans.map((p) => (p.id === plan.id ? next : p)),
+  });
 }
 
 export function deletePlan(store: Store, planId: string): Store {
-  return { ...store, plans: store.plans.filter((p) => p.id !== planId) };
+  return pruneEmptyPrograms({
+    ...store,
+    plans: store.plans.filter((p) => p.id !== planId),
+  });
 }
 
 /** Add a library program's plans, skipping names the user already has. */
@@ -621,29 +679,39 @@ function lastUsedGroupKey(store: Store): string | null {
     if (!planId) continue;
     const plan = store.plans.find((p) => p.id === planId);
     if (!plan) continue;
-    return plan.programId && PROGRAM_LIBRARY.some((pr) => pr.id === plan.programId)
-      ? plan.programId
-      : "custom";
+    const known =
+      plan.programId &&
+      (PROGRAM_LIBRARY.some((pr) => pr.id === plan.programId) ||
+        store.programs.some((pr) => pr.id === plan.programId));
+    return known ? plan.programId! : "custom";
   }
   return null;
 }
 
 /**
- * Plans grouped by program for picking: the most recently used group first,
- * then library groups easiest-first, custom plans last.
+ * Plans grouped by program for picking. User-created groups come first (your
+ * programs, then loose "My plans") since they're the likeliest picks, followed
+ * by library programs easiest-first. Whatever group was trained from most
+ * recently is bumped to the very top.
  */
 export function planGroups(store: Store): PlanGroup[] {
   const groups: PlanGroup[] = [];
+  for (const program of store.programs) {
+    const mine = store.plans.filter((p) => p.programId === program.id);
+    if (mine.length) groups.push({ key: program.id, label: program.name, plans: mine });
+  }
+  const known = new Set([
+    ...store.programs.map((p) => p.id),
+    ...PROGRAM_LIBRARY.map((p) => p.id),
+  ]);
+  const loose = store.plans.filter((p) => !p.programId || !known.has(p.programId));
+  if (loose.length) groups.push({ key: "custom", label: "My plans", plans: loose });
   for (const program of programsByLevel()) {
     const mine = store.plans.filter((p) => p.programId === program.id);
     if (mine.length) {
       groups.push({ key: program.id, label: program.name, level: program.level, plans: mine });
     }
   }
-  const custom = store.plans.filter(
-    (p) => !p.programId || !PROGRAM_LIBRARY.some((pr) => pr.id === p.programId)
-  );
-  if (custom.length) groups.push({ key: "custom", label: "My plans", plans: custom });
 
   const recent = lastUsedGroupKey(store);
   const i = recent ? groups.findIndex((g) => g.key === recent) : -1;

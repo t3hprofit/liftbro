@@ -5,6 +5,7 @@ import {
   addProgram,
   cancelWorkout,
   createPlan,
+  createProgram,
   deletePlan,
   deleteWorkout,
   emptyStore,
@@ -18,6 +19,7 @@ import {
   nextPlan,
   planGroups,
   PROGRAM_LIBRARY,
+  programIdByName,
   programsByLevel,
   recentExerciseNames,
   removeExercise,
@@ -449,10 +451,11 @@ describe("plan grouping", () => {
     expect(programsByLevel()[0].level).toBe("Beginner");
   });
 
-  it("groups plans easiest-first with custom plans last", () => {
+  it("groups custom plans first, then the library easiest-first", () => {
     const s = createPlan(emptyStore(), "Arms", [newPlanExercise("Dumbbell Curl")]);
     const groups = planGroups(s);
-    expect(groups.map((g) => g.level ?? "custom")).toEqual([
+    expect(groups[0].label).toBe("My plans");
+    expect(groups.slice(1).map((g) => g.level)).toEqual([
       "Beginner",
       "Beginner",
       "Beginner",
@@ -460,9 +463,7 @@ describe("plan grouping", () => {
       "Intermediate",
       "Intermediate",
       "Advanced",
-      "custom",
     ]);
-    expect(groups[groups.length - 1].label).toBe("My plans");
   });
 
   it("puts the most recently used program on top, skipping freestyle", () => {
@@ -496,5 +497,96 @@ describe("plan grouping", () => {
       s = deletePlan(s, p.id);
     }
     expect(planGroups(s)[0].level).toBe("Beginner");
+  });
+});
+
+describe("custom programs", () => {
+  const byName = (s: Store, name: string) => s.plans.find((p) => p.name === name)!;
+
+  function buildSplit(): Store {
+    let s = createProgram(emptyStore(), "Bro Split");
+    const id = programIdByName(s, "Bro Split")!;
+    s = createPlan(s, "Bro Day A", [newPlanExercise("Bench Press")], id);
+    s = createPlan(s, "Bro Day B", [newPlanExercise("Squat")], id);
+    return s;
+  }
+
+  function doPlan(s: Store, name: string, day: string): Store {
+    let next = startWorkout(s, `2026-11-${day}T18:00:00.000Z`, byName(s, name));
+    next = addSet(next, next.activeWorkout!.exercises[0].id, 100, 5);
+    return finishWorkout(next);
+  }
+
+  it("cycles a custom program's plans through Next up", () => {
+    let s = doPlan(buildSplit(), "Bro Day A", "01");
+    expect(nextPlan(s)!.name).toBe("Bro Day B");
+    s = doPlan(s, "Bro Day B", "02");
+    expect(nextPlan(s)!.name).toBe("Bro Day A");
+  });
+
+  it("ignores blank and duplicate program names, resolves library names", () => {
+    let s = createProgram(emptyStore(), "   ");
+    expect(s.programs).toEqual([]);
+    s = createProgram(s, "Bro Split");
+    s = createProgram(s, "bro split");
+    expect(s.programs).toHaveLength(1);
+    expect(createProgram(s, "GZCLP").programs).toHaveLength(1);
+    expect(programIdByName(s, "gzclp")).toBe("gzclp");
+    expect(programIdByName(s, "Bro Split")).toBe(s.programs[0].id);
+  });
+
+  it("groups custom programs first, then My plans, then the library", () => {
+    let s = buildSplit();
+    s = createPlan(s, "Arms", [newPlanExercise("Dumbbell Curl")]);
+    const groups = planGroups(s);
+    expect(groups[0].label).toBe("Bro Split");
+    expect(groups[0].plans.map((p) => p.name)).toEqual(["Bro Day A", "Bro Day B"]);
+    expect(groups[1].label).toBe("My plans");
+    expect(groups[2].level).toBe("Beginner");
+  });
+
+  it("bumps a library group above custom ones when it was used last", () => {
+    const s = doPlan(buildSplit(), "Full Body", "01");
+    const groups = planGroups(s);
+    expect(groups[0].key).toBe("full-body");
+    expect(groups[1].label).toBe("Bro Split");
+  });
+
+  it("keeps the custom program on top after training from it", () => {
+    let s = doPlan(buildSplit(), "Full Body", "01");
+    s = doPlan(s, "Bro Day A", "02");
+    expect(planGroups(s)[0].label).toBe("Bro Split");
+  });
+
+  it("removes a program when its last plan is deleted", () => {
+    let s = buildSplit();
+    s = deletePlan(s, byName(s, "Bro Day A").id);
+    expect(s.programs).toHaveLength(1);
+    s = deletePlan(s, byName(s, "Bro Day B").id);
+    expect(s.programs).toEqual([]);
+  });
+
+  it("removes a program when its last plan is moved out", () => {
+    let s = createProgram(emptyStore(), "Solo");
+    s = createPlan(s, "Solo Day", [newPlanExercise("Squat")], programIdByName(s, "Solo"));
+    s = updatePlan(s, { ...byName(s, "Solo Day"), programId: undefined });
+    expect(s.programs).toEqual([]);
+    expect(byName(s, "Solo Day")).toBeDefined();
+  });
+
+  it("survives save/load, and old data defaults to no programs", () => {
+    saveStore(buildSplit());
+    expect(loadStore().programs.map((p) => p.name)).toEqual(["Bro Split"]);
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({
+        version: 1,
+        workouts: [],
+        activeWorkout: null,
+        plans: [],
+        libraryVersion: LIBRARY_VERSION,
+      })
+    );
+    expect(loadStore().programs).toEqual([]);
   });
 });

@@ -9,19 +9,26 @@ import { useWorkoutStore } from "@/hooks/use-workout-store";
 import {
   addProgram,
   createPlan,
+  createProgram,
   deletePlan,
   PROGRAM_LIBRARY,
+  programIdByName,
   programsByLevel,
   updatePlan,
   type Plan,
+  type Store,
 } from "@/lib/storage";
 import { LevelBadge } from "@/components/level-badge";
 
 /** "new" = creating; "library" = browsing programs; a plan id = editing; null = list. */
 type Mode = null | "new" | "library" | { editId: string };
 
-function programName(programId?: string): string | undefined {
-  return PROGRAM_LIBRARY.find((p) => p.id === programId)?.name;
+function programName(store: Store, programId?: string): string | undefined {
+  if (!programId) return undefined;
+  return (
+    PROGRAM_LIBRARY.find((p) => p.id === programId)?.name ??
+    store.programs.find((p) => p.id === programId)?.name
+  );
 }
 
 export default function PlansPage() {
@@ -94,10 +101,19 @@ export default function PlansPage() {
           plan={editing ?? null}
           store={store}
           onCancel={() => setMode(null)}
-          onSave={(plan: Plan) => {
-            update((s) =>
-              editing ? updatePlan(s, plan) : createPlan(s, plan.name, plan.exercises)
-            );
+          onSave={(plan: Plan, newProgramName?: string) => {
+            update((s) => {
+              let next = s;
+              let programId = plan.programId;
+              if (newProgramName) {
+                next = createProgram(next, newProgramName);
+                programId = programIdByName(next, newProgramName);
+              }
+              const final = { ...plan, programId };
+              return editing
+                ? updatePlan(next, final)
+                : createPlan(next, final.name, final.exercises, programId);
+            });
             setMode(null);
           }}
           onDelete={
@@ -145,7 +161,8 @@ export default function PlansPage() {
                 <div className="min-w-0 flex-1">
                   <p className="display text-lg">{plan.name}</p>
                   <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {programName(plan.programId) && `${programName(plan.programId)} · `}
+                    {programName(store, plan.programId) &&
+                      `${programName(store, plan.programId)} · `}
                     {plan.exercises.length}{" "}
                     {plan.exercises.length === 1 ? "exercise" : "exercises"}
                     {plan.exercises.length > 0 &&
