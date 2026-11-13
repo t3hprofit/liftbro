@@ -11,6 +11,7 @@ import {
   createPlan,
   deletePlan,
   PROGRAM_LIBRARY,
+  programsByLevel,
   updatePlan,
   type Plan,
 } from "@/lib/storage";
@@ -47,7 +48,7 @@ export default function PlansPage() {
         <p className="text-sm text-muted-foreground">
           Proven programs, ready to go. Add one and its days show up on Today.
         </p>
-        {PROGRAM_LIBRARY.map((program) => {
+        {programsByLevel().map((program) => {
           const missing = program.plans.filter((d) => !have.has(d.name.toLowerCase()));
           return (
             <Card key={program.id}>

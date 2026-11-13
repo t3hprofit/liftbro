@@ -8,12 +8,11 @@ import { useWorkoutStore } from "@/hooks/use-workout-store";
 import { formatNumber, formatWorkoutDate } from "@/lib/format";
 import {
   nextPlan,
-  PROGRAM_LIBRARY,
+  planGroups,
   startWorkout,
   workoutSetCount,
   workoutVolume,
   type Plan,
-  type ProgramLevel,
 } from "@/lib/storage";
 import { LevelBadge } from "@/components/level-badge";
 
@@ -35,20 +34,6 @@ function PlanRow({ plan, onStart }: { plan: Plan; onStart: () => void }) {
   );
 }
 
-/** Plans grouped by library program (in library order), custom plans last. */
-function groupPlans(plans: Plan[]) {
-  const groups: { label: string; level?: ProgramLevel; plans: Plan[] }[] = [];
-  for (const program of PROGRAM_LIBRARY) {
-    const mine = plans.filter((p) => p.programId === program.id);
-    if (mine.length) groups.push({ label: program.name, level: program.level, plans: mine });
-  }
-  const custom = plans.filter(
-    (p) => !p.programId || !PROGRAM_LIBRARY.some((pr) => pr.id === p.programId)
-  );
-  if (custom.length) groups.push({ label: "My plans", plans: custom });
-  return groups;
-}
-
 export default function TodayPage() {
   const { store, update } = useWorkoutStore();
 
@@ -64,7 +49,7 @@ export default function TodayPage() {
 
   const last = store.workouts[store.workouts.length - 1];
   const suggested = nextPlan(store);
-  const groups = groupPlans(store.plans);
+  const groups = planGroups(store);
 
   return (
     <div className="flex flex-col gap-6 pt-8">
@@ -115,8 +100,8 @@ export default function TodayPage() {
             <p className="text-xs tracking-widest text-muted-foreground uppercase">
               {suggested ? "Or pick a plan" : "Pick a plan"}
             </p>
-            {groups.map(({ label, level, plans }) => (
-              <div key={label} className="space-y-1.5 pt-1">
+            {groups.map(({ key, label, level, plans }) => (
+              <div key={key} className="space-y-1.5 pt-1">
                 <div className="flex items-center gap-2 px-1">
                   <p className="display text-sm tracking-wide text-muted-foreground">
                     {label}

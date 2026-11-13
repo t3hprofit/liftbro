@@ -594,6 +594,66 @@ export function addProgram(store: Store, programId: string): Store {
   return { ...store, plans: [...store.plans, ...fresh] };
 }
 
+const LEVEL_RANK: Record<ProgramLevel, number> = {
+  Beginner: 0,
+  Intermediate: 1,
+  Advanced: 2,
+};
+
+/** Library programs easiest-first: Beginner, Intermediate, Advanced. */
+export function programsByLevel(): Program[] {
+  return [...PROGRAM_LIBRARY].sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]);
+}
+
+export type PlanGroup = {
+  /** Program id, or "custom" for user-made plans. */
+  key: string;
+  label: string;
+  level?: ProgramLevel;
+  plans: Plan[];
+};
+
+/** Group key of the most recent finished workout started from a plan that
+ *  still exists. Freestyle workouts are skipped. */
+function lastUsedGroupKey(store: Store): string | null {
+  for (let i = store.workouts.length - 1; i >= 0; i--) {
+    const planId = store.workouts[i].planId;
+    if (!planId) continue;
+    const plan = store.plans.find((p) => p.id === planId);
+    if (!plan) continue;
+    return plan.programId && PROGRAM_LIBRARY.some((pr) => pr.id === plan.programId)
+      ? plan.programId
+      : "custom";
+  }
+  return null;
+}
+
+/**
+ * Plans grouped by program for picking: the most recently used group first,
+ * then library groups easiest-first, custom plans last.
+ */
+export function planGroups(store: Store): PlanGroup[] {
+  const groups: PlanGroup[] = [];
+  for (const program of programsByLevel()) {
+    const mine = store.plans.filter((p) => p.programId === program.id);
+    if (mine.length) {
+      groups.push({ key: program.id, label: program.name, level: program.level, plans: mine });
+    }
+  }
+  const custom = store.plans.filter(
+    (p) => !p.programId || !PROGRAM_LIBRARY.some((pr) => pr.id === p.programId)
+  );
+  if (custom.length) groups.push({ key: "custom", label: "My plans", plans: custom });
+
+  const recent = lastUsedGroupKey(store);
+  const i = recent ? groups.findIndex((g) => g.key === recent) : -1;
+  if (i > 0) {
+    const [top] = groups.splice(i, 1);
+    groups.unshift(top);
+  }
+  return groups;
+}
+
 /**
  * The plan to do next: the one after the last finished workout's plan within
  * the same program (wrapping), or that same plan if it stands alone. Null

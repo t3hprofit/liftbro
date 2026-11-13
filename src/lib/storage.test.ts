@@ -16,7 +16,9 @@ import {
   loadStore,
   newPlanExercise,
   nextPlan,
+  planGroups,
   PROGRAM_LIBRARY,
+  programsByLevel,
   recentExerciseNames,
   removeExercise,
   removeSet,
@@ -425,5 +427,74 @@ describe("library and guidance", () => {
     s = startWorkout(s);
     s = addExercise(s, "Squat");
     expect(lastPerformance(s, "Squat")).toBeNull();
+  });
+});
+
+describe("plan grouping", () => {
+  const byName = (s: Store, name: string) => s.plans.find((p) => p.name === name)!;
+
+  function doPlan(s: Store, name: string, day: string): Store {
+    const plan = byName(s, name);
+    let next = startWorkout(s, `2026-11-${day}T18:00:00.000Z`, plan);
+    next = addSet(next, next.activeWorkout!.exercises[0].id, 100, 5);
+    return finishWorkout(next);
+  }
+
+  it("sorts the library easiest-first", () => {
+    const levels = programsByLevel().map((p) => p.level);
+    expect(levels).toEqual([...levels].sort((a, b) =>
+      ["Beginner", "Intermediate", "Advanced"].indexOf(a) -
+      ["Beginner", "Intermediate", "Advanced"].indexOf(b)
+    ));
+    expect(programsByLevel()[0].level).toBe("Beginner");
+  });
+
+  it("groups plans easiest-first with custom plans last", () => {
+    const s = createPlan(emptyStore(), "Arms", [newPlanExercise("Dumbbell Curl")]);
+    const groups = planGroups(s);
+    expect(groups.map((g) => g.level ?? "custom")).toEqual([
+      "Beginner",
+      "Beginner",
+      "Beginner",
+      "Intermediate",
+      "Intermediate",
+      "Intermediate",
+      "Advanced",
+      "custom",
+    ]);
+    expect(groups[groups.length - 1].label).toBe("My plans");
+  });
+
+  it("puts the most recently used program on top, skipping freestyle", () => {
+    let s = doPlan(emptyStore(), "Arnold: Legs", "01");
+    // a freestyle session afterwards shouldn't change the top group
+    s = startWorkout(s, "2026-11-02T18:00:00.000Z");
+    s = addExercise(s, "Squat");
+    s = addSet(s, s.activeWorkout!.exercises[0].id, 100, 5);
+    s = finishWorkout(s);
+    const groups = planGroups(s);
+    expect(groups[0].key).toBe("arnold");
+    expect(groups.slice(1).map((g) => g.level)).toEqual([
+      "Beginner",
+      "Beginner",
+      "Beginner",
+      "Intermediate",
+      "Intermediate",
+      "Intermediate",
+    ]);
+  });
+
+  it("puts custom plans on top when one was used last", () => {
+    let s = createPlan(emptyStore(), "Arms", [newPlanExercise("Dumbbell Curl")]);
+    s = doPlan(s, "Arms", "01");
+    expect(planGroups(s)[0].label).toBe("My plans");
+  });
+
+  it("falls back to level order when the last-used plan is gone", () => {
+    let s = doPlan(emptyStore(), "Arnold: Legs", "01");
+    for (const p of [...s.plans].filter((x) => x.programId === "arnold")) {
+      s = deletePlan(s, p.id);
+    }
+    expect(planGroups(s)[0].level).toBe("Beginner");
   });
 });
