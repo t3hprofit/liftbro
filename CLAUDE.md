@@ -24,6 +24,10 @@ version just needs to work.
   row creates a new timed exercise. Plans → EXERCISES toggles timed per name
   and offers to convert past weight×reps sets (reps or weight column →
   seconds). Display is always driven by the set's own data, never the toggle.
+  Names match via `exerciseKey` (case/space-insensitive, trailing "s"
+  ignored) so the owner's hand-typed "Battle rope" = seed "Battle Ropes";
+  first load after the timed release auto-converts legacy sets when one
+  column is all zeros (`upgradeLegacyTimedSets`), else leaves them.
 - Target audience includes the owner's wife, who is new to lifting and to
   apps: favour fewer decisions, pre-filled values, plain-English labels.
 - Planned next: TBD (ideas: weekly schedule, target weights / progression,

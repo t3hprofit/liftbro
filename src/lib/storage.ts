@@ -130,7 +130,16 @@ export const SEED_EXERCISES = [
 /** Exercises that are timed out of the box. Everything else is weight × reps. */
 export const SEED_TIMED_EXERCISES = ["Plank", "Battle Ropes", "Dead Hang"];
 
-const nameKey = (name: string) => name.trim().toLowerCase();
+/**
+ * Key for matching exercise names people typed by hand: case-insensitive,
+ * whitespace-collapsed, and blind to a trailing "s" so "Battle rope",
+ * "battle ropes" and "Battle Ropes" are the same exercise.
+ */
+export function exerciseKey(name: string): string {
+  const k = name.trim().toLowerCase().replace(/\s+/g, " ");
+  return k.length > 3 && k.endsWith("s") ? k.slice(0, -1) : k;
+}
+const nameKey = exerciseKey;
 
 type SeedPlan = { name: string; exercises: [string, number, number][] };
 
@@ -457,26 +466,32 @@ export function loadStore(): Store {
     // Data saved before plans existed gets the whole library. Data from the
     // first plans release (no libraryVersion) is treated as version 1 so
     // syncLibrary adds only what's new.
-    const timedExercises = Array.isArray(parsed.timedExercises)
-      ? parsed.timedExercises
-      : SEED_TIMED_EXERCISES.map(nameKey);
-    if (!Array.isArray(parsed.plans)) {
-      return {
-        ...emptyStore(),
-        workouts: parsed.workouts,
-        activeWorkout: parsed.activeWorkout ?? null,
-        timedExercises,
-      };
-    }
-    return syncLibrary({
-      version: 1,
-      workouts: parsed.workouts,
-      activeWorkout: parsed.activeWorkout ?? null,
-      plans: parsed.plans,
-      programs: Array.isArray(parsed.programs) ? parsed.programs : [],
-      libraryVersion: typeof parsed.libraryVersion === "number" ? parsed.libraryVersion : 1,
-      timedExercises,
-    });
+    const firstTimedLoad = !Array.isArray(parsed.timedExercises);
+    const timedExercises = firstTimedLoad
+      ? SEED_TIMED_EXERCISES.map(nameKey)
+      : (parsed.timedExercises as string[]);
+    let store: Store = !Array.isArray(parsed.plans)
+      ? {
+          ...emptyStore(),
+          workouts: parsed.workouts,
+          activeWorkout: parsed.activeWorkout ?? null,
+          timedExercises,
+        }
+      : syncLibrary({
+          version: 1,
+          workouts: parsed.workouts,
+          activeWorkout: parsed.activeWorkout ?? null,
+          plans: parsed.plans,
+          programs: Array.isArray(parsed.programs) ? parsed.programs : [],
+          libraryVersion:
+            typeof parsed.libraryVersion === "number" ? parsed.libraryVersion : 1,
+          timedExercises,
+        });
+    // Data from before timed sets existed: sets for now-timed exercises were
+    // logged as weight × reps with the seconds in one column. Convert the
+    // unambiguous ones once; the rest get the prompt on the Exercises screen.
+    if (firstTimedLoad) store = upgradeLegacyTimedSets(store);
+    return store;
   } catch {
     return emptyStore();
   }
@@ -663,6 +678,24 @@ export function unconvertedSets(store: Store, exerciseName: string): WorkoutSet[
     }
   }
   return out;
+}
+
+/**
+ * For every timed exercise, convert its old weight × reps sets when it's
+ * obvious which column held the seconds: all weights 0 and all reps > 0 (or
+ * the reverse). Mixed or all-zero data is left for the user to decide.
+ */
+export function upgradeLegacyTimedSets(store: Store): Store {
+  let next = store;
+  for (const key of store.timedExercises) {
+    const pending = unconvertedSets(next, key);
+    if (pending.length === 0) continue;
+    const repsAreSeconds = pending.every((x) => x.weight === 0 && x.reps > 0);
+    const weightIsSeconds = pending.every((x) => x.reps === 0 && x.weight > 0);
+    if (repsAreSeconds) next = convertSetsToTime(next, key, "reps");
+    else if (weightIsSeconds) next = convertSetsToTime(next, key, "weight");
+  }
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -857,12 +890,10 @@ export function lastPerformance(
   store: Store,
   exerciseName: string
 ): { sets: WorkoutSet[]; date: string } | null {
-  const key = exerciseName.trim().toLowerCase();
+  const key = nameKey(exerciseName);
   for (let i = store.workouts.length - 1; i >= 0; i--) {
     const w = store.workouts[i];
-    const match = w.exercises.find(
-      (e) => e.name.trim().toLowerCase() === key && e.sets.length > 0
-    );
+    const match = w.exercises.find((e) => nameKey(e.name) === key && e.sets.length > 0);
     if (match) return { sets: match.sets, date: w.startedAt };
   }
   return null;
@@ -870,23 +901,17 @@ export function lastPerformance(
 
 /** Seed list plus anything the user has ever logged or planned, deduped case-insensitively. */
 export function exerciseNameSuggestions(store: Store): string[] {
+  // The user's own spelling wins over the seed list ("Battle rope" hides
+  // the seed "Battle Ropes"), so the picker never shows near-duplicates.
   const seen = new Map<string, string>();
-  for (const name of SEED_EXERCISES) {
-    seen.set(name.toLowerCase(), name);
-  }
+  const add = (name: string) => {
+    const key = nameKey(name);
+    if (key && !seen.has(key)) seen.set(key, name.trim());
+  };
   const all = [...store.workouts, ...(store.activeWorkout ? [store.activeWorkout] : [])];
-  for (const workout of all) {
-    for (const exercise of workout.exercises) {
-      const key = exercise.name.toLowerCase();
-      if (!seen.has(key)) seen.set(key, exercise.name);
-    }
-  }
-  for (const plan of store.plans) {
-    for (const exercise of plan.exercises) {
-      const key = exercise.name.toLowerCase();
-      if (!seen.has(key)) seen.set(key, exercise.name);
-    }
-  }
+  for (const workout of all) for (const exercise of workout.exercises) add(exercise.name);
+  for (const plan of store.plans) for (const exercise of plan.exercises) add(exercise.name);
+  for (const name of SEED_EXERCISES) add(name);
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
@@ -903,7 +928,7 @@ export function recentExerciseNames(store: Store, limit = 8): string[] {
   ];
   for (const workout of workouts) {
     for (const exercise of workout.exercises) {
-      const key = exercise.name.trim().toLowerCase();
+      const key = nameKey(exercise.name);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       out.push(exercise.name);

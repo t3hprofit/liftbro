@@ -11,6 +11,7 @@ import {
   deletePlan,
   deleteWorkout,
   emptyStore,
+  exerciseKey,
   exerciseNameSuggestions,
   filterExerciseNames,
   finishWorkout,
@@ -36,6 +37,7 @@ import {
   startWorkout,
   syncLibrary,
   unconvertedSets,
+  upgradeLegacyTimedSets,
   updatePlan,
   workoutSetCount,
   workoutVolume,
@@ -617,7 +619,7 @@ describe("timed exercises", () => {
       "liftbro.v1",
       JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: [], libraryVersion: 2 })
     );
-    expect(loadStore().timedExercises).toEqual(SEED_TIMED_EXERCISES.map((n) => n.toLowerCase()));
+    expect(loadStore().timedExercises).toEqual(SEED_TIMED_EXERCISES.map(exerciseKey));
     localStorage.setItem(
       "liftbro.v1",
       JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: [], libraryVersion: 2, timedExercises: [] })
@@ -702,5 +704,86 @@ describe("timed exercises", () => {
     s = addTimedSet(s, s.activeWorkout!.exercises[0].id, 50);
     s = finishWorkout(s);
     expect(lastPerformance(s, "plank")!.sets[0].seconds).toBe(50);
+  });
+});
+
+describe("upgrading hand-named timed exercises", () => {
+  const legacy = (exercises: { name: string; sets: [number, number][] }[]) => ({
+    version: 1,
+    workouts: [
+      {
+        id: "w1",
+        startedAt: "2026-11-20T18:00:00.000Z",
+        finishedAt: "2026-11-20T18:40:00.000Z",
+        exercises: exercises.map((e, i) => ({
+          id: `e${i}`,
+          name: e.name,
+          sets: e.sets.map(([weight, reps], j) => ({ id: `s${i}${j}`, weight, reps })),
+        })),
+      },
+    ],
+    activeWorkout: null,
+    plans: [],
+    libraryVersion: 2,
+  });
+
+  it("matches names ignoring case, spacing and a trailing s", () => {
+    expect(exerciseKey("Battle rope")).toBe(exerciseKey("  battle  ROPES "));
+    expect(exerciseKey("Dip")).toBe(exerciseKey("Dips"));
+    expect(exerciseKey("Press")).not.toBe(exerciseKey("Pres"));
+    expect(exerciseKey("abs")).toBe("abs"); // too short to strip
+    expect(isTimed(emptyStore(), "Battle rope")).toBe(true);
+    expect(isTimed(emptyStore(), "PLANKS")).toBe(true);
+  });
+
+  it("converts 'Battle rope' sets on the first load after the update", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify(
+        legacy([
+          { name: "Battle rope", sets: [[0, 30], [0, 45]] },
+          { name: "Squat", sets: [[185, 5]] },
+        ])
+      )
+    );
+    const s = loadStore();
+    const [ropes, squat] = s.workouts[0].exercises;
+    expect(ropes.sets.map((x) => x.seconds)).toEqual([30, 45]);
+    expect(squat.sets[0]).toMatchObject({ weight: 185, reps: 5 });
+    expect(unconvertedSets(s, "battle ropes")).toEqual([]);
+    // and it's a one-shot: the saved store now has timedExercises, so a
+    // later load doesn't touch anything
+    saveStore(s);
+    expect(loadStore()).toEqual(s);
+  });
+
+  it("reads seconds from the weight column when that's where they were", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify(legacy([{ name: "Plank", sets: [[60, 0], [45, 0]] }]))
+    );
+    expect(loadStore().workouts[0].exercises[0].sets.map((x) => x.seconds)).toEqual([60, 45]);
+  });
+
+  it("leaves ambiguous data alone for the user to decide", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify(legacy([{ name: "Battle Ropes", sets: [[0, 30], [20, 10]] }]))
+    );
+    const s = loadStore();
+    expect(s.workouts[0].exercises[0].sets.map((x) => x.seconds)).toEqual([undefined, undefined]);
+    expect(unconvertedSets(s, "Battle rope")).toHaveLength(2);
+    expect(upgradeLegacyTimedSets(s)).toEqual(s);
+  });
+
+  it("hides the seed spelling when the user already has their own", () => {
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify(legacy([{ name: "Battle rope", sets: [[0, 30]] }]))
+    );
+    const names = exerciseNameSuggestions(loadStore());
+    expect(names).toContain("Battle rope");
+    expect(names).not.toContain("Battle Ropes");
+    expect(lastPerformance(loadStore(), "Battle Ropes")!.sets[0].seconds).toBe(30);
   });
 });

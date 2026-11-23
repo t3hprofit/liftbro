@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  exerciseKey,
   exerciseNameSuggestions,
   filterExerciseNames,
   isTimed,
@@ -16,22 +17,20 @@ import {
 type Row = { kind: "create" | "create-timed" | "recent" | "all"; name: string };
 
 function buildRows(store: Store, query: string, exclude: string[]): Row[] {
-  const taken = new Set(exclude.map((n) => n.trim().toLowerCase()));
-  const notTaken = (n: string) => !taken.has(n.trim().toLowerCase());
+  const taken = new Set(exclude.map(exerciseKey));
+  const notTaken = (n: string) => !taken.has(exerciseKey(n));
   const q = query.trim();
 
   const recent = recentExerciseNames(store).filter(notTaken);
-  const recentKeys = new Set(recent.map((n) => n.toLowerCase()));
+  const recentKeys = new Set(recent.map(exerciseKey));
   const all = filterExerciseNames(exerciseNameSuggestions(store), q).filter(
-    (n) => notTaken(n) && (q ? true : !recentKeys.has(n.toLowerCase()))
+    (n) => notTaken(n) && (q ? true : !recentKeys.has(exerciseKey(n)))
   );
 
   const rows: Row[] = [];
   const exactExists =
     q.length > 0 &&
-    exerciseNameSuggestions(store).some(
-      (n) => n.toLowerCase() === q.toLowerCase()
-    );
+    exerciseNameSuggestions(store).some((n) => exerciseKey(n) === exerciseKey(q));
   if (!q) rows.push(...recent.map((name) => ({ kind: "recent" as const, name })));
   rows.push(...all.map((name) => ({ kind: "all" as const, name })));
   // Create goes last so Enter picks the best real match when one exists.
