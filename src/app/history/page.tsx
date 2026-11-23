@@ -7,6 +7,7 @@ import { useWorkoutStore } from "@/hooks/use-workout-store";
 import {
   formatDuration,
   formatNumber,
+  formatSet,
   formatTime,
   formatWorkoutDate,
 } from "@/lib/format";
@@ -73,9 +74,7 @@ export default function HistoryPage() {
                   <span className="font-semibold">{exercise.name}</span>
                   <span className="text-muted-foreground tabular-nums">
                     {" — "}
-                    {exercise.sets
-                      .map((s) => `${formatNumber(s.weight)}×${s.reps}`)
-                      .join(", ")}
+                    {exercise.sets.map(formatSet).join(", ")}
                   </span>
                 </li>
               ))}

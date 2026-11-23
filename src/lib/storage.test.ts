@@ -3,7 +3,9 @@ import {
   addExercise,
   addSet,
   addProgram,
+  addTimedSet,
   cancelWorkout,
+  convertSetsToTime,
   createPlan,
   createProgram,
   deletePlan,
@@ -12,6 +14,8 @@ import {
   exerciseNameSuggestions,
   filterExerciseNames,
   finishWorkout,
+  isTimed,
+  isValidTarget,
   lastPerformance,
   LIBRARY_VERSION,
   loadStore,
@@ -24,11 +28,14 @@ import {
   recentExerciseNames,
   removeExercise,
   removeSet,
+  SEED_TIMED_EXERCISES,
+  setExerciseTimed,
   saveStore,
   SEED_EXERCISES,
   starterPlans,
   startWorkout,
   syncLibrary,
+  unconvertedSets,
   updatePlan,
   workoutSetCount,
   workoutVolume,
@@ -588,5 +595,112 @@ describe("custom programs", () => {
       })
     );
     expect(loadStore().programs).toEqual([]);
+  });
+});
+
+describe("timed exercises", () => {
+  function ropesHistory(): Store {
+    // Owner logged battle ropes as 0 lb × seconds before timed sets existed.
+    let s = { ...emptyStore(), timedExercises: [] as string[] };
+    s = startWorkout(s, "2026-11-01T18:00:00.000Z");
+    s = addExercise(s, "Battle Ropes");
+    const id = s.activeWorkout!.exercises[0].id;
+    s = addSet(s, id, 0, 30);
+    s = addSet(s, id, 0, 45);
+    return finishWorkout(s);
+  }
+
+  it("seeds plank and ropes as timed for new stores, and for pre-timed data", () => {
+    expect(isTimed(emptyStore(), "plank")).toBe(true);
+    expect(isTimed(emptyStore(), "Squat")).toBe(false);
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: [], libraryVersion: 2 })
+    );
+    expect(loadStore().timedExercises).toEqual(SEED_TIMED_EXERCISES.map((n) => n.toLowerCase()));
+    localStorage.setItem(
+      "liftbro.v1",
+      JSON.stringify({ version: 1, workouts: [], activeWorkout: null, plans: [], libraryVersion: 2, timedExercises: [] })
+    );
+    expect(loadStore().timedExercises).toEqual([]);
+  });
+
+  it("marks and unmarks exercises case-insensitively, idempotently", () => {
+    let s = { ...emptyStore(), timedExercises: [] as string[] };
+    s = setExerciseTimed(s, "  Battle Ropes ", true);
+    expect(isTimed(s, "battle ropes")).toBe(true);
+    expect(setExerciseTimed(s, "BATTLE ROPES", true)).toBe(s);
+    s = setExerciseTimed(s, "battle ropes", false);
+    expect(s.timedExercises).toEqual([]);
+    expect(setExerciseTimed(s, "   ", true)).toBe(s);
+  });
+
+  it("logs timed sets and rejects bad durations", () => {
+    let s = startWorkout(emptyStore());
+    s = addExercise(s, "Plank");
+    const id = s.activeWorkout!.exercises[0].id;
+    s = addTimedSet(s, id, 45);
+    expect(s.activeWorkout!.exercises[0].sets[0]).toMatchObject({ weight: 0, reps: 0, seconds: 45 });
+    expect(addTimedSet(s, id, 0).activeWorkout!.exercises[0].sets).toHaveLength(1);
+    expect(addTimedSet(s, id, 2.5).activeWorkout!.exercises[0].sets).toHaveLength(1);
+    expect(workoutVolume(s.activeWorkout!)).toBe(0);
+    expect(workoutSetCount(s.activeWorkout!)).toBe(1);
+  });
+
+  it("converts past sets reading seconds from reps or weight, skipping zeros", () => {
+    const s = ropesHistory();
+    expect(unconvertedSets(s, "battle ropes").map((x) => x.reps)).toEqual([30, 45]);
+
+    const fromReps = convertSetsToTime(s, "Battle Ropes", "reps");
+    expect(fromReps.workouts[0].exercises[0].sets.map((x) => x.seconds)).toEqual([30, 45]);
+    expect(fromReps.workouts[0].exercises[0].sets[0]).toMatchObject({ weight: 0, reps: 0 });
+    expect(unconvertedSets(fromReps, "battle ropes")).toEqual([]);
+    // already converted sets are left alone on a second pass
+    expect(convertSetsToTime(fromReps, "Battle Ropes", "weight").workouts[0].exercises[0].sets)
+      .toEqual(fromReps.workouts[0].exercises[0].sets);
+
+    // weight column was 0, so nothing converts and nothing is lost
+    const fromWeight = convertSetsToTime(s, "Battle Ropes", "weight");
+    expect(fromWeight.workouts[0].exercises[0].sets.map((x) => x.seconds)).toEqual([undefined, undefined]);
+    expect(fromWeight.workouts[0].exercises[0].sets.map((x) => x.reps)).toEqual([30, 45]);
+  });
+
+  it("converts the active session too, and leaves other exercises alone", () => {
+    let s = ropesHistory();
+    s = startWorkout(s, "2026-11-02T18:00:00.000Z");
+    s = addExercise(s, "battle ropes");
+    s = addExercise(s, "Squat");
+    const [ropes, squat] = s.activeWorkout!.exercises;
+    s = addSet(s, ropes.id, 0, 60);
+    s = addSet(s, squat.id, 225, 5);
+    s = convertSetsToTime(s, "Battle Ropes", "reps");
+    expect(s.activeWorkout!.exercises[0].sets[0].seconds).toBe(60);
+    expect(s.activeWorkout!.exercises[1].sets[0]).toMatchObject({ weight: 225, reps: 5 });
+    expect(s.activeWorkout!.exercises[1].sets[0].seconds).toBeUndefined();
+  });
+
+  it("validates targets as reps xor seconds", () => {
+    expect(isValidTarget({ sets: 3, reps: 10 })).toBe(true);
+    expect(isValidTarget({ sets: 3, seconds: 45 })).toBe(true);
+    expect(isValidTarget({ sets: 3 })).toBe(false);
+    expect(isValidTarget({ sets: 3, reps: 10, seconds: 45 })).toBe(false);
+    expect(isValidTarget({ sets: 0, reps: 10 })).toBe(false);
+    expect(isValidTarget({ sets: 3, seconds: 0 })).toBe(false);
+  });
+
+  it("round-trips timed plan targets into a workout", () => {
+    let s = createPlan({ ...emptyStore(), plans: [] }, "Core", [
+      newPlanExercise("Plank", { sets: 3, seconds: 60 }),
+    ]);
+    s = startWorkout(s, "2026-11-01T18:00:00.000Z", s.plans[0]);
+    expect(s.activeWorkout!.exercises[0].target).toEqual({ sets: 3, seconds: 60 });
+  });
+
+  it("reports the last timed performance like any other", () => {
+    let s = startWorkout(emptyStore(), "2026-11-01T18:00:00.000Z");
+    s = addExercise(s, "Plank");
+    s = addTimedSet(s, s.activeWorkout!.exercises[0].id, 50);
+    s = finishWorkout(s);
+    expect(lastPerformance(s, "plank")!.sets[0].seconds).toBe(50);
   });
 });

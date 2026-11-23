@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, Check, ChevronRight, Plus } from "lucide-react";
+import { BookOpen, Check, ChevronRight, Plus, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PlanEditor } from "@/components/plan-editor";
+import { ExerciseSettings } from "@/components/exercise-settings";
 import { useWorkoutStore } from "@/hooks/use-workout-store";
 import {
   addProgram,
@@ -20,7 +21,7 @@ import {
 import { LevelBadge } from "@/components/level-badge";
 
 /** "new" = creating; "library" = browsing programs; a plan id = editing; null = list. */
-type Mode = null | "new" | "library" | { editId: string };
+type Mode = null | "new" | "library" | "exercises" | { editId: string };
 
 export default function PlansPage() {
   const { store, update } = useWorkoutStore();
@@ -32,6 +33,20 @@ export default function PlansPage() {
 
   const editing =
     mode && typeof mode === "object" ? store.plans.find((p) => p.id === mode.editId) : null;
+
+  if (mode === "exercises") {
+    return (
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center justify-between">
+          <h1 className="display text-2xl">Exercises</h1>
+          <Button variant="ghost" onClick={() => setMode(null)}>
+            DONE
+          </Button>
+        </div>
+        <ExerciseSettings store={store} update={update} />
+      </div>
+    );
+  }
 
   if (mode === "library") {
     const have = new Set(store.plans.map((p) => p.name.toLowerCase()));
@@ -91,6 +106,7 @@ export default function PlansPage() {
         <PlanEditor
           plan={editing ?? null}
           store={store}
+          update={update}
           onCancel={() => setMode(null)}
           onSave={(plan: Plan, newProgramName?: string) => {
             update((s) => {
@@ -124,11 +140,16 @@ export default function PlansPage() {
     <div className="space-y-4 pt-2">
       <div className="flex items-center justify-between gap-2">
         <h1 className="display flex-1 text-2xl">Plans</h1>
-        <Button variant="outline" onClick={() => setMode("library")}>
+        <Button variant="secondary" onClick={() => setMode("new")}>
+          <Plus /> NEW PLAN
+        </Button>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" className="flex-1" onClick={() => setMode("library")}>
           <BookOpen /> LIBRARY
         </Button>
-        <Button variant="secondary" onClick={() => setMode("new")}>
-          <Plus /> NEW
+        <Button variant="outline" className="flex-1" onClick={() => setMode("exercises")}>
+          <Timer /> EXERCISES
         </Button>
       </div>
 

@@ -41,3 +41,44 @@ export function formatElapsed(ms: number): string {
   const ss = String(s).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
+
+/** "45s" / "1:30" / "1:02:05" — timed set durations */
+export function formatSeconds(total: number): string {
+  const t = Math.max(0, Math.round(total));
+  if (t < 60) return `${t}s`;
+  const s = t % 60;
+  const m = Math.floor(t / 60) % 60;
+  const h = Math.floor(t / 3600);
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+}
+
+/**
+ * Parse what someone types into a time field: "45", "90", "1:30", "1:02:05",
+ * "2m", "1m30". Returns whole seconds, or null if it doesn't make sense.
+ */
+export function parseDuration(input: string): number | null {
+  const raw = input.trim().toLowerCase();
+  if (!raw) return null;
+  let m: RegExpMatchArray | null;
+  if ((m = raw.match(/^(\d+)$/))) return Number(m[1]);
+  if ((m = raw.match(/^(\d+):(\d{1,2})$/))) {
+    const sec = Number(m[2]);
+    return sec < 60 ? Number(m[1]) * 60 + sec : null;
+  }
+  if ((m = raw.match(/^(\d+):(\d{1,2}):(\d{1,2})$/))) {
+    const min = Number(m[2]);
+    const sec = Number(m[3]);
+    return min < 60 && sec < 60 ? Number(m[1]) * 3600 + min * 60 + sec : null;
+  }
+  if ((m = raw.match(/^(\d+)m(?:in)?\s*(\d+)?s?$/))) {
+    return Number(m[1]) * 60 + Number(m[2] ?? 0);
+  }
+  if ((m = raw.match(/^(\d+)s(?:ec)?$/))) return Number(m[1]);
+  return null;
+}
+
+/** One logged set, however it was logged: "135×8" or "45s". */
+export function formatSet(set: { weight: number; reps: number; seconds?: number }): string {
+  return set.seconds != null ? formatSeconds(set.seconds) : `${formatNumber(set.weight)}×${set.reps}`;
+}

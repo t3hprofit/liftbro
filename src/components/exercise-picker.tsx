@@ -1,18 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { History, Plus, Search, X } from "lucide-react";
+import { History, Plus, Search, Timer, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   exerciseNameSuggestions,
   filterExerciseNames,
+  isTimed,
   recentExerciseNames,
   type Store,
 } from "@/lib/storage";
 
-type Row = { kind: "create" | "recent" | "all"; name: string };
+type Row = { kind: "create" | "create-timed" | "recent" | "all"; name: string };
 
 function buildRows(store: Store, query: string, exclude: string[]): Row[] {
   const taken = new Set(exclude.map((n) => n.trim().toLowerCase()));
@@ -34,7 +35,10 @@ function buildRows(store: Store, query: string, exclude: string[]): Row[] {
   if (!q) rows.push(...recent.map((name) => ({ kind: "recent" as const, name })));
   rows.push(...all.map((name) => ({ kind: "all" as const, name })));
   // Create goes last so Enter picks the best real match when one exists.
-  if (q && !exactExists) rows.push({ kind: "create", name: q });
+  if (q && !exactExists) {
+    rows.push({ kind: "create", name: q });
+    rows.push({ kind: "create-timed", name: q });
+  }
   return rows;
 }
 
@@ -60,7 +64,8 @@ export function ExercisePicker({
   store: Store;
   /** Exercise names already in the active workout. */
   exclude: string[];
-  onPick: (name: string) => void;
+  /** `timed` is true only when the user created a brand-new timed exercise. */
+  onPick: (name: string, opts: { timed: boolean }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -70,8 +75,8 @@ export function ExercisePicker({
     [open, store, query, exclude]
   );
 
-  const pick = (name: string) => {
-    onPick(name);
+  const pick = (row: Row) => {
+    onPick(row.name, { timed: row.kind === "create-timed" });
     setQuery("");
     setOpen(false);
   };
@@ -107,7 +112,7 @@ export function ExercisePicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && rows[0]) pick(rows[0].name);
+                if (e.key === "Enter" && rows[0]) pick(rows[0]);
                 if (e.key === "Escape") close();
               }}
               className="pl-9"
@@ -141,26 +146,35 @@ export function ExercisePicker({
                 )}
                 <button
                   type="button"
-                  onClick={() => pick(row.name)}
+                  onClick={() => pick(row)}
                   className={
-                    row.kind === "create"
+                    row.kind === "create" || row.kind === "create-timed"
                       ? "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-primary transition-colors hover:bg-muted active:bg-muted"
                       : "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted active:bg-muted"
                   }
                 >
                   {row.kind === "create" && <Plus className="size-4" />}
+                  {row.kind === "create-timed" && <Timer className="size-4" />}
                   {row.kind === "recent" && (
                     <History className="size-4 text-muted-foreground" />
                   )}
                   <span className="flex-1 truncate">
-                    {row.kind === "create" ? (
+                    {row.kind === "create" && (
                       <>
                         Create <span className="text-foreground">“{row.name}”</span>
                       </>
-                    ) : (
-                      row.name
                     )}
+                    {row.kind === "create-timed" && (
+                      <>
+                        Create <span className="text-foreground">“{row.name}”</span>
+                        <span className="font-normal text-muted-foreground"> · timed</span>
+                      </>
+                    )}
+                    {(row.kind === "recent" || row.kind === "all") && row.name}
                   </span>
+                  {(row.kind === "recent" || row.kind === "all") && isTimed(store, row.name) && (
+                    <Timer className="size-3.5 text-muted-foreground" aria-label="Timed" />
+                  )}
                 </button>
               </li>
             );

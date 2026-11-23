@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Plus, Trash2, X } from "lucide-react";
+import { Check, Plus, Timer, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ConfirmButton } from "@/components/confirm-button";
 import { ExercisePicker } from "@/components/exercise-picker";
-import { formatElapsed, formatNumber } from "@/lib/format";
+import { formatElapsed, formatNumber, formatSeconds, formatSet, parseDuration } from "@/lib/format";
 import {
   addExercise,
   addSet,
+  addTimedSet,
   cancelWorkout,
   finishWorkout,
+  isTimed,
   lastPerformance,
   removeExercise,
   removeSet,
+  setExerciseTimed,
   workoutVolume,
   type Store,
   type Workout,
@@ -39,6 +42,104 @@ function SessionClock({ startedAt }: { startedAt: string }) {
   );
 }
 
+/** The logged sets of one exercise, each with a remove ×. */
+function SetList({ exercise, update }: { exercise: WorkoutExercise; update: UpdateFn }) {
+  if (exercise.sets.length === 0) return null;
+  return (
+    <ul className="space-y-1.5">
+      {exercise.sets.map((set, i) => (
+        <li
+          key={set.id}
+          className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2"
+        >
+          <span className="w-6 text-xs font-semibold text-muted-foreground">
+            {i + 1}
+          </span>
+          <span className="flex-1 text-sm tabular-nums">
+            {set.seconds != null ? (
+              <span className="font-semibold">{formatSeconds(set.seconds)}</span>
+            ) : (
+              <>
+                <span className="font-semibold">{formatNumber(set.weight)}</span>
+                <span className="text-muted-foreground"> lb × </span>
+                <span className="font-semibold">{set.reps}</span>
+              </>
+            )}
+          </span>
+          <button
+            type="button"
+            aria-label="Remove set"
+            className="text-muted-foreground transition-colors hover:text-destructive"
+            onClick={() => update((s) => removeSet(s, exercise.id, set.id))}
+          >
+            <X className="size-4" />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function LastTime({ sets }: { sets: WorkoutExercise["sets"] }) {
+  return (
+    <p className="text-xs text-muted-foreground tabular-nums">
+      Last time: {sets.map(formatSet).join(", ")}
+    </p>
+  );
+}
+
+/** Timed exercises: one field that takes "45", "1:30" or "2m". */
+function TimedSetLogger({
+  exercise,
+  store,
+  update,
+}: {
+  exercise: WorkoutExercise;
+  store: Store;
+  update: UpdateFn;
+}) {
+  const last = lastPerformance(store, exercise.name);
+  const [time, setTime] = useState(() => {
+    if (exercise.target?.seconds) return String(exercise.target.seconds);
+    const prev = last?.sets[last.sets.length - 1].seconds;
+    return prev ? String(prev) : "";
+  });
+  const seconds = parseDuration(time);
+  const valid = seconds != null && seconds > 0;
+
+  return (
+    <div className="space-y-2">
+      {last && <LastTime sets={last.sets} />}
+      <SetList exercise={exercise} update={update} />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Timer className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            inputMode="numeric"
+            placeholder="Seconds (or 1:30)"
+            aria-label="Time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            className="pl-9"
+          />
+          {valid && (
+            <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
+              {formatSeconds(seconds)}
+            </span>
+          )}
+        </div>
+        <Button
+          onClick={() => valid && update((s) => addTimedSet(s, exercise.id, seconds))}
+          disabled={!valid}
+          aria-label="Log set"
+        >
+          <Plus /> LOG SET
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function SetLogger({
   exercise,
   store,
@@ -51,12 +152,13 @@ function SetLogger({
   const last = lastPerformance(store, exercise.name);
   // Pre-fill what you did last time and what the plan asks for, so a set is
   // usually just one tap on LOG SET.
+  const prev = last?.sets[last.sets.length - 1];
   const [weight, setWeight] = useState(() =>
-    last ? formatNumber(last.sets[last.sets.length - 1].weight) : ""
+    prev && prev.seconds == null ? formatNumber(prev.weight) : ""
   );
   const [reps, setReps] = useState(() => {
-    if (exercise.target) return String(exercise.target.reps);
-    return last ? String(last.sets[last.sets.length - 1].reps) : "";
+    if (exercise.target?.reps) return String(exercise.target.reps);
+    return prev && prev.seconds == null ? String(prev.reps) : "";
   });
 
   const parsedWeight = Number.parseFloat(weight);
@@ -75,41 +177,8 @@ function SetLogger({
 
   return (
     <div className="space-y-2">
-      {last && (
-        <p className="text-xs text-muted-foreground tabular-nums">
-          Last time:{" "}
-          {last.sets.map((s) => `${formatNumber(s.weight)}×${s.reps}`).join(", ")}
-        </p>
-      )}
-      {exercise.sets.length > 0 && (
-        <ul className="space-y-1.5">
-          {exercise.sets.map((set, i) => (
-            <li
-              key={set.id}
-              className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2"
-            >
-              <span className="w-6 text-xs font-semibold text-muted-foreground">
-                {i + 1}
-              </span>
-              <span className="flex-1 text-sm tabular-nums">
-                <span className="font-semibold">{formatNumber(set.weight)}</span>
-                <span className="text-muted-foreground"> lb × </span>
-                <span className="font-semibold">{set.reps}</span>
-              </span>
-              <button
-                type="button"
-                aria-label="Remove set"
-                className="text-muted-foreground transition-colors hover:text-destructive"
-                onClick={() =>
-                  update((s) => removeSet(s, exercise.id, set.id))
-                }
-              >
-                <X className="size-4" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {last && <LastTime sets={last.sets} />}
+      <SetList exercise={exercise} update={update} />
       <div className="flex gap-2">
         <Input
           inputMode="decimal"
@@ -148,7 +217,11 @@ function TargetProgress({ exercise }: { exercise: WorkoutExercise }) {
       <span className="font-semibold">
         {done}/{target.sets}
       </span>
-      <span> sets · target {target.sets} × {target.reps}</span>
+      <span>
+        {" "}
+        sets · target {target.sets} ×{" "}
+        {target.seconds != null ? formatSeconds(target.seconds) : target.reps}
+      </span>
     </p>
   );
 }
@@ -208,7 +281,11 @@ export function WorkoutLogger({
             </ConfirmButton>
           </CardHeader>
           <CardContent>
-            <SetLogger exercise={exercise} store={store} update={update} />
+            {isTimed(store, exercise.name) ? (
+              <TimedSetLogger exercise={exercise} store={store} update={update} />
+            ) : (
+              <SetLogger exercise={exercise} store={store} update={update} />
+            )}
           </CardContent>
         </Card>
       ))}
@@ -216,7 +293,9 @@ export function WorkoutLogger({
       <ExercisePicker
         store={store}
         exclude={workout.exercises.map((e) => e.name)}
-        onPick={(name) => update((s) => addExercise(s, name))}
+        onPick={(name, { timed }) =>
+          update((s) => addExercise(timed ? setExerciseTimed(s, name, true) : s, name))
+        }
       />
 
       <div className="flex gap-2 pt-2">

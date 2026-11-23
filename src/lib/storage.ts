@@ -7,15 +7,22 @@
 
 export type WorkoutSet = {
   id: string;
-  /** Weight in lbs. Unit setting comes later. */
+  /** Weight in lbs. Unit setting comes later. 0 for timed sets. */
   weight: number;
+  /** 0 for timed sets. */
   reps: number;
+  /** Present on timed sets (plank, battle ropes…). */
+  seconds?: number;
 };
 
-/** What a plan asks for: N sets of M reps. Weight is whatever you log. */
+/**
+ * What a plan asks for: N sets of M reps, or N sets of M seconds for timed
+ * exercises. Exactly one of reps/seconds is set. Weight is whatever you log.
+ */
 export type SetTarget = {
   sets: number;
-  reps: number;
+  reps?: number;
+  seconds?: number;
 };
 
 export type WorkoutExercise = {
@@ -73,6 +80,8 @@ export type Store = {
   /** Highest library version whose programs have been offered to this store.
    *  Lets new built-in programs appear once for existing users. */
   libraryVersion: number;
+  /** Lower-cased names of exercises logged by time instead of weight × reps. */
+  timedExercises: string[];
 };
 
 const STORAGE_KEY = "liftbro.v1";
@@ -113,7 +122,15 @@ export const SEED_EXERCISES = [
   "Mountain Climber",
   "Crunch",
   "Hanging Knee Raise",
+  "Plank",
+  "Battle Ropes",
+  "Dead Hang",
 ];
+
+/** Exercises that are timed out of the box. Everything else is weight × reps. */
+export const SEED_TIMED_EXERCISES = ["Plank", "Battle Ropes", "Dead Hang"];
+
+const nameKey = (name: string) => name.trim().toLowerCase();
 
 type SeedPlan = { name: string; exercises: [string, number, number][] };
 
@@ -406,6 +423,7 @@ export function emptyStore(): Store {
     plans: starterPlans(),
     programs: [],
     libraryVersion: LIBRARY_VERSION,
+    timedExercises: SEED_TIMED_EXERCISES.map(nameKey),
   };
 }
 
@@ -439,8 +457,16 @@ export function loadStore(): Store {
     // Data saved before plans existed gets the whole library. Data from the
     // first plans release (no libraryVersion) is treated as version 1 so
     // syncLibrary adds only what's new.
+    const timedExercises = Array.isArray(parsed.timedExercises)
+      ? parsed.timedExercises
+      : SEED_TIMED_EXERCISES.map(nameKey);
     if (!Array.isArray(parsed.plans)) {
-      return { ...emptyStore(), workouts: parsed.workouts, activeWorkout: parsed.activeWorkout ?? null };
+      return {
+        ...emptyStore(),
+        workouts: parsed.workouts,
+        activeWorkout: parsed.activeWorkout ?? null,
+        timedExercises,
+      };
     }
     return syncLibrary({
       version: 1,
@@ -449,6 +475,7 @@ export function loadStore(): Store {
       plans: parsed.plans,
       programs: Array.isArray(parsed.programs) ? parsed.programs : [],
       libraryVersion: typeof parsed.libraryVersion === "number" ? parsed.libraryVersion : 1,
+      timedExercises,
     });
   } catch {
     return emptyStore();
@@ -546,6 +573,19 @@ export function addSet(
   }));
 }
 
+/** Log a timed set (plank, ropes…). Rejects non-positive or fractional seconds. */
+export function addTimedSet(store: Store, exerciseId: string, seconds: number): Store {
+  if (!Number.isInteger(seconds) || seconds <= 0) return store;
+  return updateActive(store, (w) => ({
+    ...w,
+    exercises: w.exercises.map((e) =>
+      e.id === exerciseId
+        ? { ...e, sets: [...e.sets, { id: newId(), weight: 0, reps: 0, seconds }] }
+        : e
+    ),
+  }));
+}
+
 export function removeSet(store: Store, exerciseId: string, setId: string): Store {
   return updateActive(store, (w) => ({
     ...w,
@@ -558,12 +598,85 @@ export function removeSet(store: Store, exerciseId: string, setId: string): Stor
 }
 
 // ---------------------------------------------------------------------------
+// Timed exercises
+
+export function isTimed(store: Store, exerciseName: string): boolean {
+  return store.timedExercises.includes(nameKey(exerciseName));
+}
+
+/** Mark an exercise as timed (or not). Existing sets are left as they are. */
+export function setExerciseTimed(store: Store, exerciseName: string, timed: boolean): Store {
+  const key = nameKey(exerciseName);
+  if (!key) return store;
+  const has = store.timedExercises.includes(key);
+  if (timed === has) return store;
+  return {
+    ...store,
+    timedExercises: timed
+      ? [...store.timedExercises, key]
+      : store.timedExercises.filter((k) => k !== key),
+  };
+}
+
+/**
+ * Convert an exercise's past weight × reps sets into timed sets, reading the
+ * seconds from whichever column the user had been abusing. Sets that are
+ * already timed, or whose source value isn't a positive number, are skipped.
+ * Applies to history and the active session.
+ */
+export function convertSetsToTime(
+  store: Store,
+  exerciseName: string,
+  from: "reps" | "weight"
+): Store {
+  const key = nameKey(exerciseName);
+  const convert = (w: Workout): Workout => ({
+    ...w,
+    exercises: w.exercises.map((e) =>
+      nameKey(e.name) === key
+        ? {
+            ...e,
+            sets: e.sets.map((set) => {
+              if (set.seconds != null) return set;
+              const seconds = Math.round(set[from]);
+              return seconds > 0 ? { ...set, weight: 0, reps: 0, seconds } : set;
+            }),
+          }
+        : e
+    ),
+  });
+  return {
+    ...store,
+    workouts: store.workouts.map(convert),
+    activeWorkout: store.activeWorkout ? convert(store.activeWorkout) : null,
+  };
+}
+
+/** Past non-timed sets for an exercise, so the convert UI can show a sample. */
+export function unconvertedSets(store: Store, exerciseName: string): WorkoutSet[] {
+  const key = nameKey(exerciseName);
+  const out: WorkoutSet[] = [];
+  for (const w of store.workouts) {
+    for (const e of w.exercises) {
+      if (nameKey(e.name) !== key) continue;
+      for (const set of e.sets) if (set.seconds == null) out.push(set);
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Plans
 
+const positiveInt = (n: unknown) => Number.isInteger(n) && (n as number) > 0;
+
+/** Sets > 0 and exactly one of reps / seconds > 0. */
 export function isValidTarget(t: SetTarget): boolean {
-  return (
-    Number.isInteger(t.sets) && t.sets > 0 && Number.isInteger(t.reps) && t.reps > 0
-  );
+  if (!positiveInt(t.sets)) return false;
+  const hasReps = t.reps != null;
+  const hasSeconds = t.seconds != null;
+  if (hasReps === hasSeconds) return false;
+  return hasReps ? positiveInt(t.reps) : positiveInt(t.seconds);
 }
 
 /** Drop blank names and bad targets so a half-filled editor can't save junk. */

@@ -1,45 +1,55 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Timer, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ConfirmButton } from "@/components/confirm-button";
 import { ExercisePicker } from "@/components/exercise-picker";
 import {
+  isTimed,
   newId,
   PROGRAM_LIBRARY,
+  setExerciseTimed,
   type Plan,
   type PlanExercise,
   type Store,
 } from "@/lib/storage";
 
-/** Editor-local row: targets stay strings while typing so "" is allowed. */
-type Row = { id: string; name: string; sets: string; reps: string };
+/**
+ * Editor-local row: targets stay strings while typing so "" is allowed.
+ * `amount` is reps, or seconds when the exercise is timed.
+ */
+type Row = { id: string; name: string; sets: string; amount: string; timed: boolean };
 
-function toRows(plan: Plan | null): Row[] {
+function toRows(plan: Plan | null, store: Store): Row[] {
   if (!plan) return [];
   return plan.exercises.map((e) => ({
     id: e.id,
     name: e.name,
     sets: String(e.target.sets),
-    reps: String(e.target.reps),
+    amount: String(e.target.seconds ?? e.target.reps ?? ""),
+    timed: e.target.seconds != null || isTimed(store, e.name),
   }));
 }
 
 function rowValid(r: Row): boolean {
   const sets = Number.parseInt(r.sets, 10);
-  const reps = Number.parseInt(r.reps, 10);
-  return Number.isInteger(sets) && sets > 0 && Number.isInteger(reps) && reps > 0;
+  const amount = Number.parseInt(r.amount, 10);
+  return Number.isInteger(sets) && sets > 0 && Number.isInteger(amount) && amount > 0;
 }
 
 function toExercises(rows: Row[]): PlanExercise[] {
-  return rows.filter(rowValid).map((r) => ({
-    id: r.id,
-    name: r.name,
-    target: { sets: Number.parseInt(r.sets, 10), reps: Number.parseInt(r.reps, 10) },
-  }));
+  return rows.filter(rowValid).map((r) => {
+    const sets = Number.parseInt(r.sets, 10);
+    const amount = Number.parseInt(r.amount, 10);
+    return {
+      id: r.id,
+      name: r.name,
+      target: r.timed ? { sets, seconds: amount } : { sets, reps: amount },
+    };
+  });
 }
 
 /** Sentinel select value for "create a new program". */
@@ -53,6 +63,7 @@ const NEW_PROGRAM = "__new__";
 export function PlanEditor({
   plan,
   store,
+  update,
   onSave,
   onCancel,
   onDelete,
@@ -60,6 +71,8 @@ export function PlanEditor({
   /** null = creating a new plan */
   plan: Plan | null;
   store: Store;
+  /** Needed so creating a new timed exercise from the picker sticks. */
+  update: (fn: (s: Store) => Store) => void;
   /** newProgramName is set when the user picked "+ New program" — create it
    *  (or join the existing program of that name) and tag the plan into it. */
   onSave: (plan: Plan, newProgramName?: string) => void;
@@ -67,7 +80,7 @@ export function PlanEditor({
   onDelete?: () => void;
 }) {
   const [name, setName] = useState(plan?.name ?? "");
-  const [rows, setRows] = useState<Row[]>(() => toRows(plan));
+  const [rows, setRows] = useState<Row[]>(() => toRows(plan, store));
   const [programSel, setProgramSel] = useState(plan?.programId ?? "");
   const [newProgramName, setNewProgramName] = useState("");
 
@@ -160,7 +173,12 @@ export function PlanEditor({
                   key={row.id}
                   className="grid grid-cols-[1fr_3.5rem_3.5rem_auto] items-center gap-2 rounded-lg bg-muted px-2 py-1.5"
                 >
-                  <span className="truncate text-sm font-semibold">{row.name}</span>
+                  <span className="flex min-w-0 items-center gap-1 text-sm font-semibold">
+                    <span className="truncate">{row.name}</span>
+                    {row.timed && (
+                      <Timer className="size-3.5 shrink-0 text-muted-foreground" aria-label="Timed" />
+                    )}
+                  </span>
                   <Input
                     inputMode="numeric"
                     aria-label={`${row.name} sets`}
@@ -168,13 +186,20 @@ export function PlanEditor({
                     onChange={(e) => patch(row.id, { sets: e.target.value })}
                     className="h-9 px-2 text-center tabular-nums"
                   />
-                  <Input
-                    inputMode="numeric"
-                    aria-label={`${row.name} reps`}
-                    value={row.reps}
-                    onChange={(e) => patch(row.id, { reps: e.target.value })}
-                    className="h-9 px-2 text-center tabular-nums"
-                  />
+                  <div className="relative">
+                    <Input
+                      inputMode="numeric"
+                      aria-label={`${row.name} ${row.timed ? "seconds" : "reps"}`}
+                      value={row.amount}
+                      onChange={(e) => patch(row.id, { amount: e.target.value })}
+                      className={`h-9 px-2 text-center tabular-nums ${row.timed ? "pr-4" : ""}`}
+                    />
+                    {row.timed && (
+                      <span className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 text-[0.65rem] text-muted-foreground">
+                        s
+                      </span>
+                    )}
+                  </div>
                   <div className="flex w-[4.5rem] justify-end">
                     <button
                       type="button"
@@ -213,9 +238,14 @@ export function PlanEditor({
       <ExercisePicker
         store={store}
         exclude={rows.map((r) => r.name)}
-        onPick={(picked) =>
-          setRows((rs) => [...rs, { id: newId(), name: picked, sets: "3", reps: "10" }])
-        }
+        onPick={(picked, { timed: created }) => {
+          if (created) update((s) => setExerciseTimed(s, picked, true));
+          const timed = created || isTimed(store, picked);
+          setRows((rs) => [
+            ...rs,
+            { id: newId(), name: picked, sets: "3", amount: timed ? "45" : "10", timed },
+          ]);
+        }}
       />
 
       <div className="flex gap-2 pt-2">
@@ -252,7 +282,8 @@ export function PlanEditor({
       </div>
       {!canSave && (
         <p className="text-center text-xs text-muted-foreground">
-          Name it, add at least one exercise, and name any new program.
+          Name it, add at least one exercise with sets and reps (or seconds), and
+          name any new program.
         </p>
       )}
     </div>

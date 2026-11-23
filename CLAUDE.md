@@ -17,6 +17,13 @@ version just needs to work.
 - Logger: "2/4 sets · target 4 × 6" per planned exercise; reps pre-filled
   from target, weight pre-filled from last time ("Last time: 135×10, …").
   Exercises with zero sets are dropped on finish.
+- Timed exercises (plank, battle ropes…): `Store.timedExercises` holds
+  lower-cased names; timed sets are `{ weight: 0, reps: 0, seconds }` and a
+  plan target is `{ sets, seconds }` instead of `{ sets, reps }`. Logger shows
+  one time field (accepts "45", "1:30", "2m"). Picker's "Create … · timed"
+  row creates a new timed exercise. Plans → EXERCISES toggles timed per name
+  and offers to convert past weight×reps sets (reps or weight column →
+  seconds). Display is always driven by the set's own data, never the toggle.
 - Target audience includes the owner's wife, who is new to lifting and to
   apps: favour fewer decisions, pre-filled values, plain-English labels.
 - Planned next: TBD (ideas: weekly schedule, target weights / progression,
