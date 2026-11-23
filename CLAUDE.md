@@ -6,7 +6,16 @@ version just needs to work.
 ## Product
 
 - Log sets with reps and weight per exercise; multiple exercises per workout
-- History view (duration, set count, total volume; shows plan name if any)
+- History view (duration, set count, total volume; shows plan name if any).
+  Top of tab: three tiles (sessions this week, weekly streak, lifetime lb)
+  and a 12-week Monday-first consistency grid. Sets that were a personal
+  record get a red "PR" pill, in History and live in the logger; the logger
+  header and Today's "Last session" show a PR count. PR = heavier than any
+  earlier set of that exercise, or more reps at the same top weight, or
+  longer for timed; an exercise's first session never counts. All in
+  `src/lib/stats.ts` (pure, `now` injectable). No chart library — inline
+  markup only; per-exercise sparklines are the natural next step once
+  there's enough data.
 - Plans: reusable templates (name + ordered exercises with sets × reps
   targets), all editable. Built-in library (`PROGRAM_LIBRARY` in storage.ts):
   Full Body, Push/Pull/Legs, Upper/Lower, GZCLP, Arnold Split, each with a
@@ -30,8 +39,9 @@ version just needs to work.
   column is all zeros (`upgradeLegacyTimedSets`), else leaves them.
 - Target audience includes the owner's wife, who is new to lifting and to
   apps: favour fewer decisions, pre-filled values, plain-English labels.
-- Planned next: TBD (ideas: weekly schedule, target weights / progression,
-  planned-vs-actual in history, rest timer)
+- Planned next: TBD (ideas: per-exercise progress view with sparkline,
+  weekly schedule, target weights / progression, planned-vs-actual in
+  history, rest timer)
 - Look & feel: "gym bro" vibe — dark iron/steel, blood-red accent, Anton
   display font, uppercase headings. Explicitly NOT Planet Fitness purple/yellow.
 

@@ -15,6 +15,7 @@ import {
   type Plan,
 } from "@/lib/storage";
 import { LevelBadge } from "@/components/level-badge";
+import { prCount } from "@/lib/stats";
 
 function PlanRow({ plan, onStart }: { plan: Plan; onStart: () => void }) {
   return (
@@ -48,6 +49,7 @@ export default function TodayPage() {
   }
 
   const last = store.workouts[store.workouts.length - 1];
+  const lastPrs = last ? prCount(store, last) : 0;
   const suggested = nextPlan(store);
   const groups = planGroups(store);
 
@@ -152,6 +154,14 @@ export default function TodayPage() {
               <span className="text-muted-foreground"> sets · </span>
               <span className="font-semibold">{formatNumber(workoutVolume(last))}</span>
               <span className="text-muted-foreground"> lb volume</span>
+              {lastPrs > 0 && (
+                <>
+                  <span className="text-muted-foreground"> · </span>
+                  <span className="font-semibold text-primary">
+                    {lastPrs} PR{lastPrs === 1 ? "" : "s"}
+                  </span>
+                </>
+              )}
             </p>
           </CardContent>
         </Card>

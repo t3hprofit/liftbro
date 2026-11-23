@@ -7,7 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ConfirmButton } from "@/components/confirm-button";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { PrBadge } from "@/components/pr-badge";
 import { formatElapsed, formatNumber, formatSeconds, formatSet, parseDuration } from "@/lib/format";
+import { prSetIds } from "@/lib/stats";
 import {
   addExercise,
   addSet,
@@ -42,8 +44,16 @@ function SessionClock({ startedAt }: { startedAt: string }) {
   );
 }
 
-/** The logged sets of one exercise, each with a remove ×. */
-function SetList({ exercise, update }: { exercise: WorkoutExercise; update: UpdateFn }) {
+/** The logged sets of one exercise, each with a remove × and a PR tag when earned. */
+function SetList({
+  exercise,
+  prs,
+  update,
+}: {
+  exercise: WorkoutExercise;
+  prs: Set<string>;
+  update: UpdateFn;
+}) {
   if (exercise.sets.length === 0) return null;
   return (
     <ul className="space-y-1.5">
@@ -55,16 +65,17 @@ function SetList({ exercise, update }: { exercise: WorkoutExercise; update: Upda
           <span className="w-6 text-xs font-semibold text-muted-foreground">
             {i + 1}
           </span>
-          <span className="flex-1 text-sm tabular-nums">
+          <span className="flex flex-1 items-center gap-2 text-sm tabular-nums">
             {set.seconds != null ? (
               <span className="font-semibold">{formatSeconds(set.seconds)}</span>
             ) : (
-              <>
+              <span>
                 <span className="font-semibold">{formatNumber(set.weight)}</span>
                 <span className="text-muted-foreground"> lb × </span>
                 <span className="font-semibold">{set.reps}</span>
-              </>
+              </span>
             )}
+            {prs.has(set.id) && <PrBadge />}
           </span>
           <button
             type="button"
@@ -92,10 +103,12 @@ function LastTime({ sets }: { sets: WorkoutExercise["sets"] }) {
 function TimedSetLogger({
   exercise,
   store,
+  prs,
   update,
 }: {
   exercise: WorkoutExercise;
   store: Store;
+  prs: Set<string>;
   update: UpdateFn;
 }) {
   const last = lastPerformance(store, exercise.name);
@@ -110,7 +123,7 @@ function TimedSetLogger({
   return (
     <div className="space-y-2">
       {last && <LastTime sets={last.sets} />}
-      <SetList exercise={exercise} update={update} />
+      <SetList exercise={exercise} prs={prs} update={update} />
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Timer className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -143,10 +156,12 @@ function TimedSetLogger({
 function SetLogger({
   exercise,
   store,
+  prs,
   update,
 }: {
   exercise: WorkoutExercise;
   store: Store;
+  prs: Set<string>;
   update: UpdateFn;
 }) {
   const last = lastPerformance(store, exercise.name);
@@ -178,7 +193,7 @@ function SetLogger({
   return (
     <div className="space-y-2">
       {last && <LastTime sets={last.sets} />}
-      <SetList exercise={exercise} update={update} />
+      <SetList exercise={exercise} prs={prs} update={update} />
       <div className="flex gap-2">
         <Input
           inputMode="decimal"
@@ -237,6 +252,11 @@ export function WorkoutLogger({
 }) {
   const volume = workoutVolume(workout);
   const hasSets = workout.exercises.some((e) => e.sets.length > 0);
+  const prs = prSetIds(store);
+  const prCount = workout.exercises.reduce(
+    (n, e) => n + e.sets.filter((s) => prs.has(s.id)).length,
+    0
+  );
 
   return (
     <div className="space-y-4">
@@ -253,11 +273,17 @@ export function WorkoutLogger({
           </div>
           <div className="text-right">
             <p className="text-xs tracking-widest text-muted-foreground uppercase">
-              Volume
+              {prCount > 0 ? "Volume · PRs" : "Volume"}
             </p>
             <p className="display text-3xl tabular-nums">
               {formatNumber(volume)}
               <span className="ml-1 text-sm text-muted-foreground">lb</span>
+              {prCount > 0 && (
+                <span className="ml-2 text-primary">
+                  {prCount}
+                  <span className="ml-0.5 text-sm">PR{prCount === 1 ? "" : "s"}</span>
+                </span>
+              )}
             </p>
           </div>
         </CardContent>
@@ -282,9 +308,9 @@ export function WorkoutLogger({
           </CardHeader>
           <CardContent>
             {isTimed(store, exercise.name) ? (
-              <TimedSetLogger exercise={exercise} store={store} update={update} />
+              <TimedSetLogger exercise={exercise} store={store} prs={prs} update={update} />
             ) : (
-              <SetLogger exercise={exercise} store={store} update={update} />
+              <SetLogger exercise={exercise} store={store} prs={prs} update={update} />
             )}
           </CardContent>
         </Card>

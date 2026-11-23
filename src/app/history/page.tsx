@@ -3,6 +3,8 @@
 import { Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmButton } from "@/components/confirm-button";
+import { ConsistencyGrid, SummaryTiles } from "@/components/history-stats";
+import { PrBadge } from "@/components/pr-badge";
 import { useWorkoutStore } from "@/hooks/use-workout-store";
 import {
   formatDuration,
@@ -11,6 +13,7 @@ import {
   formatTime,
   formatWorkoutDate,
 } from "@/lib/format";
+import { prSetIds } from "@/lib/stats";
 import { deleteWorkout, workoutSetCount, workoutVolume } from "@/lib/storage";
 
 export default function HistoryPage() {
@@ -23,6 +26,7 @@ export default function HistoryPage() {
   const workouts = [...store.workouts].sort((a, b) =>
     b.startedAt.localeCompare(a.startedAt)
   );
+  const prs = prSetIds(store);
 
   if (workouts.length === 0) {
     return (
@@ -38,6 +42,8 @@ export default function HistoryPage() {
   return (
     <div className="space-y-4 pt-2">
       <h1 className="display text-2xl">History</h1>
+      <SummaryTiles store={store} />
+      <ConsistencyGrid store={store} />
       {workouts.map((workout) => (
         <Card key={workout.id}>
           <CardHeader>
@@ -74,7 +80,13 @@ export default function HistoryPage() {
                   <span className="font-semibold">{exercise.name}</span>
                   <span className="text-muted-foreground tabular-nums">
                     {" — "}
-                    {exercise.sets.map(formatSet).join(", ")}
+                    {exercise.sets.map((set, i) => (
+                      <span key={set.id}>
+                        {i > 0 && ", "}
+                        {formatSet(set)}
+                        {prs.has(set.id) && <PrBadge className="ml-1 align-text-top" />}
+                      </span>
+                    ))}
                   </span>
                 </li>
               ))}
